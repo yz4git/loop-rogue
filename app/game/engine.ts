@@ -7,10 +7,13 @@ import {
   type GameState,
   type Move,
   type PlayerState,
+  type Position,
+  type VisualEffect,
 } from "./types";
 import {
   entityAtCenter,
   findEntityById,
+  isMoveBlockedByRock,
   mod,
   moveLabel,
   slideBoard,
@@ -24,22 +27,50 @@ const INITIAL_PLAYER: PlayerState = {
   defense: 0,
   healPower: 3,
   hasKey: false,
+  level: 1,
   xp: 0,
 };
 
 let eventCounter = 0;
 
-function makeEvent(type: GameEvent["type"], text: string): GameEvent {
+function makeEvent(
+  type: GameEvent["type"],
+  text: string,
+  effects: VisualEffect[] = [],
+): GameEvent {
   eventCounter += 1;
-  return { id: eventCounter, type, text };
+  return { id: eventCounter, type, text, effects };
+}
+
+export function xpToNextLevel(level: number): number {
+  return 3 + level * 2;
+}
+
+function grantXp(player: PlayerState, amount: number): number {
+  player.xp += amount;
+  let levelsGained = 0;
+  while (player.xp >= xpToNextLevel(player.level)) {
+    player.xp -= xpToNextLevel(player.level);
+    player.level += 1;
+    player.maxHp += 1;
+    player.hp = Math.min(player.maxHp, player.hp + 1);
+    player.attack += 1;
+    levelsGained += 1;
+  }
+  return levelsGained;
 }
 
 function damageFor(entity: Entity, player: PlayerState): number {
   return Math.max(1, (entity.attack ?? 1) - player.defense);
 }
 
-function moveSlimes(board: Board, player: PlayerState, messages: string[]): boolean {
+function moveSlimes(
+  board: Board,
+  player: PlayerState,
+  messages: string[],
+): { tookDamage: boolean; effects: VisualEffect[] } {
   let tookDamage = false;
+  const effects: VisualEffect[] = [];
   const slimeIds = board
     .flat()
     .filter((entity): entity is Entity => entity?.kind === "slime")
@@ -67,17 +98,22 @@ function moveSlimes(board: Board, player: PlayerState, messages: string[]): bool
       player.hp -= damage;
       tookDamage = true;
       messages.push(`スライムの接近攻撃！ ${damage}ダメージ`);
+      effects.push(
+        { id: `enemy-hit-${id}`, type: "enemyHit", row: CENTER, col: CENTER, text: `-${damage}`, entityId: id },
+        { id: `damage-${id}`, type: "damage", row: CENTER, col: CENTER, text: `-${damage}` },
+      );
       board[position.row][position.col] = null;
     } else if (board[row][col] === null) {
       board[row][col] = slime;
       board[position.row][position.col] = null;
+      effects.push({ id: `move-${id}`, type: "enemyMove", row, col, entityId: id });
     }
   }
 
-  return tookDamage;
+  return { tookDamage, effects };
 }
 
-function retreatSlime(board: Board, entity: Entity): void {
+function retreatSlime(board: Board, entity: Entity): Position | null {
   const options = [
     { row: CENTER - 1, col: CENTER },
     { row: CENTER + 1, col: CENTER },
@@ -85,65 +121,87 @@ function retreatSlime(board: Board, entity: Entity): void {
     { row: CENTER, col: CENTER + 1 },
   ];
   const target = options.find(({ row, col }) => board[row][col] === null);
-  if (target) board[target.row][target.col] = entity;
+  if (target) {
+    board[target.row][target.col] = entity;
+    return target;
+  }
+  return null;
 }
 
 function resolveCenter(
   board: Board,
   player: PlayerState,
   messages: string[],
-): { type: GameEvent["type"]; clear: boolean } {
+): { type: GameEvent["type"]; clear: boolean; effects: VisualEffect[]; levelUps: number } {
   const center = entityAtCenter(board);
-  if (!center) return { type: "slide", clear: false };
+  if (!center) return { type: "slide", clear: false, effects: [], levelUps: 0 };
 
   switch (center.kind) {
     case "key":
       player.hasKey = true;
-      player.xp += 1;
-      board[CENTER][CENTER] = null;
-      messages.push("鍵を手に入れた！ 出口を中央へ運ぼう");
-      return { type: "pickup", clear: false };
+      {
+        const levelUps = grantXp(player, 1);
+        const effects: VisualEffect[] = [
+          { id: `pickup-${center.id}`, type: "pickup", row: CENTER, col: CENTER, text: "+1 XP" },
+        ];
+        if (levelUps) effects.push({ id: `level-${player.level}`, type: "levelup", row: CENTER, col: CENTER, text: `LV ${player.level}` });
+        board[CENTER][CENTER] = null;
+        messages.push(`鍵を手に入れた！ +1 XP${levelUps ? `・LV${player.level}！` : ""}`);
+        return { type: levelUps ? "levelup" : "pickup", clear: false, effects, levelUps };
+      }
     case "exit":
       if (player.hasKey) {
-        messages.push("出口を突破した！ フロアクリア！");
-        return { type: "clear", clear: true };
+        const levelUps = grantXp(player, 2);
+        const effects: VisualEffect[] = [
+          { id: `exit-${center.id}`, type: "pickup", row: CENTER, col: CENTER, text: "+2 XP" },
+        ];
+        if (levelUps) effects.push({ id: `level-${player.level}`, type: "levelup", row: CENTER, col: CENTER, text: `LV ${player.level}` });
+        messages.push(`出口を突破！ +2 XP${levelUps ? `・LV${player.level}！` : ""}`);
+        return { type: "clear", clear: true, effects, levelUps };
       }
       messages.push("出口は鍵がかかっている。先に鍵を運ぼう");
-      return { type: "info", clear: false };
+      return { type: "info", clear: false, effects: [], levelUps: 0 };
     case "potion": {
       const before = player.hp;
       player.hp = Math.min(player.maxHp, player.hp + player.healPower);
       board[CENTER][CENTER] = null;
       messages.push(`回復薬を飲んだ！ HP +${player.hp - before}`);
-      return { type: "heal", clear: false };
+      return { type: "heal", clear: false, effects: [{ id: `heal-${center.id}`, type: "heal", row: CENTER, col: CENTER, text: `+${player.hp - before}` }], levelUps: 0 };
     }
     case "spike":
       player.hp -= 1;
       board[CENTER][CENTER] = null;
       messages.push("トゲを踏んだ！ 1ダメージ");
-      return { type: "damage", clear: false };
+      return { type: "damage", clear: false, effects: [{ id: `spike-${center.id}`, type: "damage", row: CENTER, col: CENTER, text: "-1" }], levelUps: 0 };
     case "rock":
       messages.push("岩が中央で止まった。次の手を考えよう");
-      return { type: "info", clear: false };
+      return { type: "info", clear: false, effects: [], levelUps: 0 };
     case "slime": {
       const dealt = player.attack;
+      const effects: VisualEffect[] = [
+        { id: `attack-${center.id}`, type: "attack", row: CENTER, col: CENTER, text: `-${dealt}`, entityId: center.id },
+      ];
       if ((center.hp ?? 1) <= dealt) {
-        player.xp += 2;
+        const levelUps = grantXp(player, 2);
         board[CENTER][CENTER] = null;
-        messages.push("スライムを撃破！");
-        return { type: "hit", clear: false };
+        effects.push({ id: `defeat-${center.id}`, type: "enemyHit", row: CENTER, col: CENTER, text: "+2 XP", entityId: center.id });
+        if (levelUps) effects.push({ id: `level-${player.level}`, type: "levelup", row: CENTER, col: CENTER, text: `LV ${player.level}` });
+        messages.push(`スライムを撃破！ +2 XP${levelUps ? `・LV${player.level}！` : ""}`);
+        return { type: levelUps ? "levelup" : "hit", clear: false, effects, levelUps };
       }
 
       center.hp = (center.hp ?? 1) - dealt;
       const damage = damageFor(center, player);
       player.hp -= damage;
       board[CENTER][CENTER] = null;
-      retreatSlime(board, center);
+      const retreat = retreatSlime(board, center);
+      effects.push({ id: `counter-${center.id}`, type: "damage", row: CENTER, col: CENTER, text: `-${damage}` });
+      if (retreat) effects.push({ id: `retreat-${center.id}`, type: "enemyMove", row: retreat.row, col: retreat.col, entityId: center.id });
       messages.push(`攻撃！ スライムに${dealt}ダメージ。反撃で${damage}ダメージ`);
-      return { type: "damage", clear: false };
+      return { type: "damage", clear: false, effects, levelUps: 0 };
     }
     default:
-      return { type: "slide", clear: false };
+      return { type: "slide", clear: false, effects: [], levelUps: 0 };
   }
 }
 
@@ -151,9 +209,12 @@ function chooseEventType(
   centerType: GameEvent["type"],
   tookDamage: boolean,
   player: PlayerState,
+  levelUps: number,
 ): GameEvent["type"] {
   if (player.hp <= 0) return "gameover";
   if (tookDamage) return "damage";
+  if (centerType === "clear") return "clear";
+  if (levelUps > 0) return "levelup";
   return centerType;
 }
 
@@ -174,6 +235,20 @@ export function createGameState(floor = 1, seed = Date.now()): GameState {
 export function applyMove(game: GameState, move: Move): GameState {
   if (game.status !== "playing") return game;
 
+  if (isMoveBlockedByRock(game.board, move)) {
+    const source = mod(CENTER - move.delta);
+    const row = move.axis === "row" ? CENTER : source;
+    const col = move.axis === "row" ? source : CENTER;
+    const text = "岩が行く手をふさいでいる！ 別の方向へ動かそう";
+    return {
+      ...game,
+      message: text,
+      event: makeEvent("blocked", text, [
+        { id: `blocked-${game.turn}-${row}-${col}`, type: "blocked", row, col, text: "BLOCK" },
+      ]),
+    };
+  }
+
   const board = slideBoard(game.board, move);
   const player = { ...game.player };
   const messages: string[] = [moveLabel(move)];
@@ -182,12 +257,14 @@ export function applyMove(game: GameState, move: Move): GameState {
   let status = centerResult.clear ? "clear" : game.status;
 
   if (status === "playing") {
-    tookDamage = moveSlimes(board, player, messages) || tookDamage;
+    const enemyPhase = moveSlimes(board, player, messages);
+    tookDamage = enemyPhase.tookDamage || tookDamage;
+    centerResult.effects.push(...enemyPhase.effects);
     if (player.hp <= 0) status = "gameover";
   }
 
   const nextPlan = status === "playing" ? buildPlan(board, player.hasKey) ?? [] : game.solution;
-  const type = chooseEventType(centerResult.type, tookDamage, player);
+  const type = chooseEventType(centerResult.type, tookDamage, player, centerResult.levelUps);
   const eventText =
     status === "gameover" ? "力尽きた…" : messages.slice(1).join(" ") || messages[0];
 
@@ -199,7 +276,7 @@ export function applyMove(game: GameState, move: Move): GameState {
     turn: game.turn + 1,
     solution: nextPlan,
     message: status === "gameover" ? "ゲームオーバー。もう一度挑戦しよう" : eventText,
-    event: makeEvent(type, eventText),
+    event: makeEvent(type, eventText, centerResult.effects),
   };
 }
 

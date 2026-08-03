@@ -20,7 +20,28 @@ export type EventType =
   | "damage"
   | "clear"
   | "gameover"
+  | "blocked"
+  | "levelup"
   | "info";
+
+export type EffectType =
+  | "attack"
+  | "enemyMove"
+  | "enemyHit"
+  | "damage"
+  | "heal"
+  | "pickup"
+  | "blocked"
+  | "levelup";
+
+export interface VisualEffect {
+  id: string;
+  type: EffectType;
+  row: number;
+  col: number;
+  text?: string;
+  entityId?: string;
+}
 
 export interface Entity {
   id: string;
@@ -49,6 +70,7 @@ export interface PlayerState {
   defense: number;
   healPower: number;
   hasKey: boolean;
+  level: number;
   xp: number;
 }
 
@@ -56,6 +78,7 @@ export interface GameEvent {
   id: number;
   type: EventType;
   text: string;
+  effects: VisualEffect[];
 }
 
 export type GameStatus = "playing" | "clear" | "gameover";

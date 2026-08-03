@@ -13,6 +13,7 @@ import {
   emptyBoard,
   findEntity,
   findEntityById,
+  isMoveBlockedByRock,
   slideBoard,
 } from "./board";
 
@@ -87,6 +88,21 @@ function planObjectToCenter(
       move = { axis: "row", line: CENTER, delta };
     }
 
+    if (isMoveBlockedByRock(board, move)) {
+      const rock = findEntity(board, "rock");
+      const source = CENTER - move.delta;
+      const detour: Move =
+        move.axis === "row"
+          ? { axis: "col", line: source, delta: 1 }
+          : { axis: "row", line: source, delta: 1 };
+      // 対象の隣の岩だけを中央線から外し、攻略ルートを維持する。
+      if (!rock || isMoveBlockedByRock(board, detour)) return false;
+      const shifted = slideBoard(board, detour);
+      moves.push(detour);
+      board.splice(0, board.length, ...shifted);
+      continue;
+    }
+
     const next = slideBoard(board, move);
     moves.push(move);
     board.splice(0, board.length, ...next);
@@ -151,6 +167,7 @@ function planIsSafe(source: Board, plan: Move[]): boolean {
   let hasKey = false;
 
   for (const move of plan) {
+    if (isMoveBlockedByRock(board, move)) return false;
     const next = slideBoard(board, move);
     board.splice(0, board.length, ...next);
     const center = board[CENTER][CENTER];

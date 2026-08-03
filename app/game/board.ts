@@ -73,6 +73,17 @@ export function slideBoard(board: Board, move: Move): Board {
   return next;
 }
 
+/** 岩が次の1マスで中央へ押し込まれる操作は、主人公との衝突として遮断する。 */
+export function isMoveBlockedByRock(board: Board, move: Move): boolean {
+  if (move.line !== Math.floor(BOARD_SIZE / 2)) return false;
+  const source = mod(Math.floor(BOARD_SIZE / 2) - move.delta);
+  const entity =
+    move.axis === "row"
+      ? board[Math.floor(BOARD_SIZE / 2)][source]
+      : board[source][Math.floor(BOARD_SIZE / 2)];
+  return entity?.kind === "rock";
+}
+
 export function moveLabel(move: Move): string {
   if (move.axis === "row") {
     return move.delta === 1

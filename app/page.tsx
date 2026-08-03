@@ -18,9 +18,10 @@ import {
   nextFloor,
   resetGame,
   upgradePlayer,
+  xpToNextLevel,
 } from "./game/engine";
 import { CENTER, BOARD_SIZE, type Axis, type GameState, type Move } from "./game/types";
-import { listEntities } from "./game/board";
+import { isMoveBlockedByRock, listEntities } from "./game/board";
 
 interface DragState {
   pointerId: number;
@@ -32,6 +33,8 @@ interface DragState {
   line: number;
   offsetPx: number;
   offsetCells: number;
+  intentPx: number;
+  blocked: boolean;
 }
 
 type UpgradeId = "attack" | "maxHp" | "heal";
@@ -96,6 +99,10 @@ function eventTone(type: GameState["event"]["type"]): [number, number] {
       return [110, 0.2];
     case "clear":
       return [880, 0.22];
+    case "levelup":
+      return [980, 0.24];
+    case "blocked":
+      return [120, 0.08];
     default:
       return [320, 0.06];
   }
@@ -108,6 +115,7 @@ export default function Home() {
   const [soundOn, setSoundOn] = useState(true);
   const [selectedUpgrade, setSelectedUpgrade] = useState<UpgradeId | null>(null);
   const [moving, setMoving] = useState(false);
+  const [activeMove, setActiveMove] = useState<Move | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
@@ -173,12 +181,14 @@ export default function Home() {
       if (movingRef.current || game.status !== "playing") return;
       movingRef.current = true;
       setMoving(true);
+      setActiveMove(move);
       setHintVisible(false);
       setGame((current) => applyMove(current, move));
       window.setTimeout(() => {
         movingRef.current = false;
         setMoving(false);
-      }, 260);
+        setActiveMove(null);
+      }, 360);
     },
     [game.status],
   );
@@ -201,6 +211,8 @@ export default function Home() {
       line: startRow,
       offsetPx: 0,
       offsetCells: 0,
+      intentPx: 0,
+      blocked: false,
     };
     dragRef.current = next;
     setDrag(next);
@@ -219,12 +231,22 @@ export default function Home() {
     const rawOffset = axis === "row" ? dx : dy;
     const board = boardRef.current;
     const cellSize = board ? board.getBoundingClientRect().width / BOARD_SIZE : 40;
+    const line = axis === "row" ? current.startRow : current.startCol;
+    const intendedMove: Move = {
+      axis,
+      line,
+      delta: rawOffset >= 0 ? 1 : -1,
+    };
+    const blocked = Math.abs(rawOffset) > 1 && isMoveBlockedByRock(game.board, intendedMove);
+    const visualOffset = blocked ? clamp(rawOffset * 0.12, -7, 7) : rawOffset;
     const next: DragState = {
       ...current,
       axis,
-      line: axis === "row" ? current.startRow : current.startCol,
-      offsetPx: clamp(rawOffset, -cellSize * 1.18, cellSize * 1.18),
-      offsetCells: clamp(rawOffset / cellSize, -1.18, 1.18),
+      line,
+      offsetPx: clamp(visualOffset, -cellSize * 1.18, cellSize * 1.18),
+      offsetCells: clamp(visualOffset / cellSize, -1.18, 1.18),
+      intentPx: rawOffset,
+      blocked,
     };
     dragRef.current = next;
     setDrag(next);
@@ -236,12 +258,12 @@ export default function Home() {
     if (!current || current.pointerId !== event.pointerId) return;
     dragRef.current = null;
     setDrag(null);
-    const distance = Math.abs(current.offsetPx);
+    const distance = Math.abs(current.intentPx);
     if (current.axis && distance >= 18) {
       commitMove({
         axis: current.axis,
         line: current.line,
-        delta: current.offsetPx >= 0 ? 1 : -1,
+        delta: current.intentPx >= 0 ? 1 : -1,
       });
     }
   };
@@ -290,13 +312,25 @@ export default function Home() {
   };
 
   const entities = listEntities(game.board);
+  const movedEnemies = new Set(
+    game.event.effects.filter((effect) => effect.type === "enemyMove").map((effect) => effect.entityId),
+  );
   const hpPercent = `${clamp((game.player.hp / game.player.maxHp) * 100, 0, 100)}%`;
+  const xpGoal = xpToNextLevel(game.player.level);
+  const xpPercent = `${clamp((game.player.xp / xpGoal) * 100, 0, 100)}%`;
   const objective = game.player.hasKey ? "出口を中央へ運ぶ" : "鍵を中央へ運ぶ";
   const boardClassName = [
     "board-shell",
     game.event.type === "damage" || game.event.type === "gameover" ? "board-shake" : "",
     game.event.type === "clear" ? "board-clear" : "",
+    game.event.type === "blocked" ? "board-blocked" : "",
+    game.event.type === "levelup" ? "board-levelup" : "",
   ].join(" ");
+
+  const patternAxis = drag?.axis ?? activeMove?.axis ?? null;
+  const patternLine = drag?.axis ? drag.line : activeMove?.line ?? CENTER;
+  const patternOffset = drag?.axis ? drag.offsetPx : 0;
+  const patternDelta = activeMove?.delta ?? 1;
 
   return (
     <main className="game-shell">
@@ -322,7 +356,10 @@ export default function Home() {
       <section className="objective-row" aria-live="polite">
         <div className="objective-icon">{game.player.hasKey ? "🚪" : "🔑"}</div>
         <div><span className="section-label">CURRENT OBJECTIVE</span><strong>{objective}</strong></div>
-        <div className="xp-pill">XP <b>{game.player.xp}</b></div>
+        <div className="level-panel" aria-label={`レベル${game.player.level}、経験値${game.player.xp}/${xpGoal}`}>
+          <div><span>LV</span><b>{game.player.level}</b><small>XP {game.player.xp}/{xpGoal}</small></div>
+          <div className="xp-track"><i style={{ width: xpPercent }} /></div>
+        </div>
       </section>
 
       <section className="play-area">
@@ -340,6 +377,13 @@ export default function Home() {
             onPointerLeave={(event) => { if (drag) updateDrag(event); }}
             onKeyDown={onBoardKeyDown}
           >
+            {patternAxis && (
+              <div
+                className={`line-pattern pattern-${patternAxis} ${drag ? "pattern-dragging" : "pattern-settling"} ${patternDelta > 0 ? "pattern-positive" : "pattern-negative"} ${drag?.blocked ? "pattern-blocked" : ""}`}
+                style={{ "--line": patternLine, "--pattern-offset": `${patternOffset}px` } as CSSProperties}
+                aria-hidden="true"
+              />
+            )}
             <div className="board-cells" aria-hidden="true">
               {Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => {
                 const row = Math.floor(index / BOARD_SIZE);
@@ -356,7 +400,7 @@ export default function Home() {
                 return tokenCopies(row, col, drag).map((position, copyIndex) => (
                   <div
                     key={`${entity.id}-${copyIndex}`}
-                    className={`board-token token-${meta.className} ${drag ? "token-dragging" : ""}`}
+                    className={`board-token token-${meta.className} ${drag ? "token-dragging" : ""} ${movedEnemies.has(entity.id) ? "token-enemy-moved" : ""}`}
                     style={tokenStyle(position)}
                     title={cellDescription(entity)}
                   >
@@ -367,6 +411,18 @@ export default function Home() {
               })}
             </div>
 
+            <div className="effects-layer" aria-hidden="true">
+              {game.event.effects.map((effect) => (
+                <div
+                  key={`${game.event.id}-${effect.id}`}
+                  className={`visual-effect effect-${effect.type}`}
+                  style={tokenStyle({ x: effect.col, y: effect.row })}
+                >
+                  <span>{effect.type === "attack" ? "⚔" : effect.type === "enemyMove" ? "➜" : effect.type === "blocked" ? "✕" : effect.type === "heal" ? "✦" : effect.text}</span>
+                </div>
+              ))}
+            </div>
+
             <div className={`center-marker ${game.event.id ? "center-ready" : ""}`}>
               <span>YOU</span>
               <b>✦</b>
@@ -374,7 +430,7 @@ export default function Home() {
 
             {drag?.axis && (
               <div className={`drag-guide guide-${drag.axis}`} style={{ "--line": drag.line } as CSSProperties}>
-                {drag.axis === "row" ? "ROW" : "COLUMN"}
+                {drag.blocked ? "ROCK BLOCK" : drag.axis === "row" ? "ROW" : "COLUMN"}
               </div>
             )}
           </div>
