@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { emptyBoard, isMoveBlockedByRock, slideBoard } from "../app/game/board";
+import { emptyBoard, emptyWalls, isMoveBlockedByWall, slideBoard, slideWalls } from "../app/game/board";
 import { applyMove } from "../app/game/engine";
 import { buildPlan } from "../app/game/generator";
 import { CENTER, type GameState, type Move, type PlayerState } from "../app/game/types";
@@ -18,11 +18,12 @@ const player = (overrides: Partial<PlayerState> = {}): PlayerState => ({
   ...overrides,
 });
 
-function state(board: GameState["board"], playerState = player()): GameState {
+function state(board: GameState["board"], walls = emptyWalls(), playerState = player()): GameState {
   return {
     floor: 1,
     turn: 0,
     board,
+    walls,
     player: playerState,
     status: "playing",
     message: "test",
@@ -31,32 +32,36 @@ function state(board: GameState["board"], playerState = player()): GameState {
   };
 }
 
-test("中央へ押し込まれる隣接岩がスライドを遮断する", () => {
+test("中央へ向いた隣接床の壁がスライドを遮断する", () => {
   const board = emptyBoard();
-  board[CENTER][CENTER - 1] = { id: "rock", kind: "rock" };
+  const walls = emptyWalls();
+  walls[CENTER][CENTER - 1] = { id: "wall", sides: ["right"] };
   const move: Move = { axis: "row", line: CENTER, delta: 1 };
 
-  assert.equal(isMoveBlockedByRock(board, move), true);
-  const next = applyMove(state(board), move);
+  assert.equal(isMoveBlockedByWall(walls, move), true);
+  const next = applyMove(state(board, walls), move);
   assert.equal(next.turn, 0);
-  assert.equal(next.board[CENTER][CENTER - 1]?.kind, "rock");
+  assert.deepEqual(next.walls[CENTER][CENTER - 1]?.sides, ["right"]);
   assert.equal(next.event.type, "blocked");
 });
 
-test("岩を中央から遠ざける方向はスライドできる", () => {
+test("壁のない辺からはオブジェクトごと中央へ重なれる", () => {
   const board = emptyBoard();
-  board[CENTER][CENTER - 1] = { id: "rock", kind: "rock" };
-  const next = applyMove(state(board), { axis: "row", line: CENTER, delta: -1 });
+  const walls = emptyWalls();
+  board[CENTER][CENTER - 1] = { id: "key", kind: "key" };
+  walls[CENTER][CENTER - 1] = { id: "wall", sides: ["top"] };
+  const next = applyMove(state(board, walls), { axis: "row", line: CENTER, delta: 1 });
 
   assert.equal(next.turn, 1);
-  assert.equal(next.board[CENTER][CENTER - 2]?.kind, "rock");
+  assert.equal(next.player.hasKey, true);
+  assert.deepEqual(next.walls[CENTER][CENTER]?.sides, ["top"]);
 });
 
 test("経験値が規定値に達すると自動でレベルアップする", () => {
   const board = emptyBoard();
   board[CENTER][CENTER - 1] = { id: "key", kind: "key" };
   const next = applyMove(
-    state(board, player({ xp: 4 })),
+    state(board, emptyWalls(), player({ xp: 4 })),
     { axis: "row", line: CENTER, delta: 1 },
   );
 
@@ -68,18 +73,20 @@ test("経験値が規定値に達すると自動でレベルアップする", ()
   assert.ok(next.event.effects.some((effect) => effect.type === "levelup"));
 });
 
-test("ヒント経路は岩で遮断される操作を含まない", () => {
+test("ヒント経路は壁で遮断される操作を含まない", () => {
   let board = emptyBoard();
+  let walls = emptyWalls();
   board[CENTER][0] = { id: "key", kind: "key" };
-  board[CENTER][CENTER - 1] = { id: "rock", kind: "rock" };
+  walls[CENTER][CENTER - 1] = { id: "wall", sides: ["right"] };
   board[6][5] = { id: "exit", kind: "exit" };
-  const plan = buildPlan(board);
+  const plan = buildPlan(board, walls);
 
   assert.ok(plan && plan.length > 0);
   let hasKey = false;
   for (const move of plan ?? []) {
-    assert.equal(isMoveBlockedByRock(board, move), false);
+    assert.equal(isMoveBlockedByWall(walls, move), false);
     board = slideBoard(board, move);
+    walls = slideWalls(walls, move);
     if (board[CENTER][CENTER]?.kind === "key") {
       hasKey = true;
       board[CENTER][CENTER] = null;

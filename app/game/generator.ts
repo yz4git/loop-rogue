@@ -7,14 +7,19 @@ import {
   type GeneratedFloor,
   type Move,
   type SlideDelta,
+  type WallBoard,
+  type WallSide,
 } from "./types";
 import {
   cloneBoard,
+  cloneWalls,
   emptyBoard,
+  emptyWalls,
   findEntity,
   findEntityById,
-  isMoveBlockedByRock,
+  isMoveBlockedByWall,
   slideBoard,
+  slideWalls,
 } from "./board";
 
 interface CandidateStats {
@@ -63,6 +68,7 @@ function place(board: Board, row: number, col: number, entity: Entity): void {
 
 function planObjectToCenter(
   board: Board,
+  walls: WallBoard,
   kind: EntityKind,
   moves: Move[],
   removeWhenCentered: boolean,
@@ -88,24 +94,27 @@ function planObjectToCenter(
       move = { axis: "row", line: CENTER, delta };
     }
 
-    if (isMoveBlockedByRock(board, move)) {
-      const rock = findEntity(board, "rock");
+    if (isMoveBlockedByWall(walls, move)) {
       const source = CENTER - move.delta;
       const detour: Move =
         move.axis === "row"
           ? { axis: "col", line: source, delta: 1 }
           : { axis: "row", line: source, delta: 1 };
-      // 対象の隣の岩だけを中央線から外し、攻略ルートを維持する。
-      if (!rock || isMoveBlockedByRock(board, detour)) return false;
+      // 中央をふさぐ壁床を垂直方向へずらし、別の辺から入れるルートを作る。
+      if (isMoveBlockedByWall(walls, detour)) return false;
       const shifted = slideBoard(board, detour);
+      const shiftedWalls = slideWalls(walls, detour);
       moves.push(detour);
       board.splice(0, board.length, ...shifted);
+      walls.splice(0, walls.length, ...shiftedWalls);
       continue;
     }
 
     const next = slideBoard(board, move);
+    const nextWalls = slideWalls(walls, move);
     moves.push(move);
     board.splice(0, board.length, ...next);
+    walls.splice(0, walls.length, ...nextWalls);
 
     const centered = findEntity(board, kind);
     if (centered?.row === CENTER && centered.col === CENTER) {
@@ -118,11 +127,12 @@ function planObjectToCenter(
 }
 
 /** Build a deterministic route for the key -> exit solution or the remaining exit route. */
-export function buildPlan(source: Board, keyAlreadyCollected = false): Move[] | null {
+export function buildPlan(source: Board, sourceWalls: WallBoard, keyAlreadyCollected = false): Move[] | null {
   const board = cloneBoard(source);
+  const walls = cloneWalls(sourceWalls);
   const moves: Move[] = [];
-  if (!keyAlreadyCollected && !planObjectToCenter(board, "key", moves, true)) return null;
-  if (!planObjectToCenter(board, "exit", moves, false)) return null;
+  if (!keyAlreadyCollected && !planObjectToCenter(board, walls, "key", moves, true)) return null;
+  if (!planObjectToCenter(board, walls, "exit", moves, false)) return null;
   return moves;
 }
 
@@ -161,14 +171,16 @@ function moveSlimesForSimulation(board: Board, player: CandidateStats): number {
   return damage;
 }
 
-function planIsSafe(source: Board, plan: Move[]): boolean {
+function planIsSafe(source: Board, sourceWalls: WallBoard, plan: Move[]): boolean {
   const board = cloneBoard(source);
+  let walls = cloneWalls(sourceWalls);
   const player: CandidateStats = { hp: 8, maxHp: 8, attack: 2, defense: 0 };
   let hasKey = false;
 
   for (const move of plan) {
-    if (isMoveBlockedByRock(board, move)) return false;
+    if (isMoveBlockedByWall(walls, move)) return false;
     const next = slideBoard(board, move);
+    walls = slideWalls(walls, move);
     board.splice(0, board.length, ...next);
     const center = board[CENTER][CENTER];
 
@@ -211,8 +223,9 @@ function randomPosition(rng: RandomSource): { row: number; col: number } {
   return rng.pick(cells);
 }
 
-function candidateFloor(floor: number, rng: RandomSource): Board {
+function candidateFloor(floor: number, rng: RandomSource): { board: Board; walls: WallBoard } {
   const board = emptyBoard();
+  const walls = emptyWalls();
   const key = randomPosition(rng);
   let exit = randomPosition(rng);
   while (exit.row === key.row && exit.col === key.col) exit = randomPosition(rng);
@@ -238,40 +251,55 @@ function candidateFloor(floor: number, rng: RandomSource): Board {
     }
   };
 
-  add("rock", 5 + Math.min(2, floor));
   add("spike", 2 + Math.min(2, Math.floor(floor / 2)));
   add("potion", 1 + (floor % 3 === 0 ? 1 : 0));
   add("slime", 1 + Math.min(2, Math.floor((floor - 1) / 2)));
-  return board;
+  const wallCells = shuffle(
+    Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => ({
+      row: Math.floor(index / BOARD_SIZE),
+      col: index % BOARD_SIZE,
+    })).filter(({ row, col }) => row !== CENTER || col !== CENTER),
+    rng,
+  );
+  const sides: WallSide[] = ["top", "right", "bottom", "left"];
+  for (let index = 0; index < 6 + Math.min(3, floor); index += 1) {
+    const { row, col } = wallCells[index];
+    const first = rng.pick(sides);
+    const wallSides = [first];
+    if (index % 4 === 0) wallSides.push(sides[(sides.indexOf(first) + 1) % sides.length]);
+    walls[row][col] = { id: `wall-${floor}-${index}`, sides: wallSides };
+  }
+  return { board, walls };
 }
 
-function fallbackFloor(floor: number): Board {
+function fallbackFloor(floor: number): { board: Board; walls: WallBoard } {
   const board = emptyBoard();
+  const walls = emptyWalls();
   place(board, 1, 1, makeEntity("key", `key-${floor}`));
   place(board, 5, 5, makeEntity("exit", `exit-${floor}`));
   place(board, CENTER, 0, makeEntity("potion", `potion-${floor}`));
   place(board, 0, CENTER, makeEntity("spike", `spike-${floor}`));
-  place(board, 0, 0, makeEntity("rock", `rock-${floor}`));
   place(board, 6, 6, makeEntity("slime", `slime-${floor}`));
-  return board;
+  walls[0][0] = { id: `wall-${floor}`, sides: ["right", "bottom"] };
+  return { board, walls };
 }
 
 export function generateFloor(floor: number, seed = Date.now()): GeneratedFloor {
   const rng = randomSource(seed + floor * 7919);
   for (let attempt = 0; attempt < 240; attempt += 1) {
-    const board = candidateFloor(floor, rng);
-    const solution = buildPlan(board);
+    const { board, walls } = candidateFloor(floor, rng);
+    const solution = buildPlan(board, walls);
     if (!solution || solution.length < 3 || solution.length > 16) continue;
     if (!solution.some((move) => move.axis === "row") || !solution.some((move) => move.axis === "col")) continue;
-    if (planIsSafe(board, solution)) return { board, solution };
+    if (planIsSafe(board, walls, solution)) return { board, walls, solution };
   }
 
-  const board = fallbackFloor(floor);
-  const solution = buildPlan(board) ?? [
+  const { board, walls } = fallbackFloor(floor);
+  const solution = buildPlan(board, walls) ?? [
     { axis: "col", line: 1, delta: 1 },
     { axis: "row", line: CENTER, delta: 1 },
     { axis: "col", line: 5, delta: -1 },
     { axis: "row", line: CENTER, delta: -1 },
   ];
-  return { board, solution };
+  return { board, walls, solution };
 }

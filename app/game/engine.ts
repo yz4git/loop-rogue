@@ -13,10 +13,11 @@ import {
 import {
   entityAtCenter,
   findEntityById,
-  isMoveBlockedByRock,
+  isMoveBlockedByWall,
   mod,
   moveLabel,
   slideBoard,
+  slideWalls,
 } from "./board";
 import { buildPlan, generateFloor } from "./generator";
 
@@ -173,9 +174,6 @@ function resolveCenter(
       board[CENTER][CENTER] = null;
       messages.push("トゲを踏んだ！ 1ダメージ");
       return { type: "damage", clear: false, effects: [{ id: `spike-${center.id}`, type: "damage", row: CENTER, col: CENTER, text: "-1" }], levelUps: 0 };
-    case "rock":
-      messages.push("岩が中央で止まった。次の手を考えよう");
-      return { type: "info", clear: false, effects: [], levelUps: 0 };
     case "slime": {
       const dealt = player.attack;
       const effects: VisualEffect[] = [
@@ -224,6 +222,7 @@ export function createGameState(floor = 1, seed = Date.now()): GameState {
     floor,
     turn: 0,
     board: generated.board,
+    walls: generated.walls,
     player: { ...INITIAL_PLAYER },
     status: "playing",
     message: "行または列をスワイプして、鍵を中央へ運ぼう",
@@ -235,11 +234,11 @@ export function createGameState(floor = 1, seed = Date.now()): GameState {
 export function applyMove(game: GameState, move: Move): GameState {
   if (game.status !== "playing") return game;
 
-  if (isMoveBlockedByRock(game.board, move)) {
+  if (isMoveBlockedByWall(game.walls, move)) {
     const source = mod(CENTER - move.delta);
     const row = move.axis === "row" ? CENTER : source;
     const col = move.axis === "row" ? source : CENTER;
-    const text = "岩が行く手をふさいでいる！ 別の方向へ動かそう";
+    const text = "壁が行く手をふさいでいる！ 壁のない辺から入ろう";
     return {
       ...game,
       message: text,
@@ -250,6 +249,7 @@ export function applyMove(game: GameState, move: Move): GameState {
   }
 
   const board = slideBoard(game.board, move);
+  const walls = slideWalls(game.walls, move);
   const player = { ...game.player };
   const messages: string[] = [moveLabel(move)];
   const centerResult = resolveCenter(board, player, messages);
@@ -263,7 +263,7 @@ export function applyMove(game: GameState, move: Move): GameState {
     if (player.hp <= 0) status = "gameover";
   }
 
-  const nextPlan = status === "playing" ? buildPlan(board, player.hasKey) ?? [] : game.solution;
+  const nextPlan = status === "playing" ? buildPlan(board, walls, player.hasKey) ?? [] : game.solution;
   const type = chooseEventType(centerResult.type, tookDamage, player, centerResult.levelUps);
   const eventText =
     status === "gameover" ? "力尽きた…" : messages.slice(1).join(" ") || messages[0];
@@ -271,6 +271,7 @@ export function applyMove(game: GameState, move: Move): GameState {
   return {
     ...game,
     board,
+    walls,
     player,
     status: status as GameState["status"],
     turn: game.turn + 1,
@@ -311,8 +312,6 @@ export function entityToken(kind: Entity["kind"]): {
       return { emoji: "🧪", label: "回復薬", className: "potion" };
     case "spike":
       return { emoji: "🔺", label: "トゲ", className: "spike" };
-    case "rock":
-      return { emoji: "🪨", label: "岩", className: "rock" };
     case "slime":
       return { emoji: "🟢", label: `スライム HP${entityHp(kind)}`, className: "slime" };
     default:
@@ -337,6 +336,7 @@ export function nextFloor(game: GameState, player: PlayerState): GameState {
     floor: game.floor + 1,
     turn: 0,
     board: generated.board,
+    walls: generated.walls,
     player: { ...player, hasKey: false },
     status: "playing",
     message: "次のフロア。鍵を探そう",

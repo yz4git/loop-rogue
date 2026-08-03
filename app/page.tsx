@@ -21,7 +21,7 @@ import {
   xpToNextLevel,
 } from "./game/engine";
 import { CENTER, BOARD_SIZE, type Axis, type GameState, type Move } from "./game/types";
-import { isMoveBlockedByRock, listEntities } from "./game/board";
+import { isMoveBlockedByWall, listEntities } from "./game/board";
 
 interface DragState {
   pointerId: number;
@@ -208,7 +208,7 @@ export default function Home() {
       movingRef.current = true;
       setMoving(true);
       setHintVisible(false);
-      if (!isMoveBlockedByRock(game.board, move)) {
+      if (!isMoveBlockedByWall(game.walls, move)) {
         setFloorGrid((current) => slideFloorGrid(current, move));
       }
       setGame((current) => applyMove(current, move));
@@ -217,7 +217,7 @@ export default function Home() {
         setMoving(false);
       }, 360);
     },
-    [game.board, game.status],
+    [game.status, game.walls],
   );
 
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -264,7 +264,7 @@ export default function Home() {
       line,
       delta: rawOffset >= 0 ? 1 : -1,
     };
-    const blocked = Math.abs(rawOffset) > 1 && isMoveBlockedByRock(game.board, intendedMove);
+    const blocked = Math.abs(rawOffset) > 1 && isMoveBlockedByWall(game.walls, intendedMove);
     const visualOffset = blocked ? clamp(rawOffset * 0.12, -7, 7) : rawOffset;
     const next: DragState = {
       ...current,
@@ -430,6 +430,27 @@ export default function Home() {
             </div>
             <div className="center-floor-glow" aria-hidden="true" />
 
+            <div className="wall-layer" aria-hidden="true">
+              {game.walls.flatMap((wallRow, row) =>
+                wallRow.flatMap((wall, col) =>
+                  wall
+                    ? tokenCopies(row, col, drag).map((position, copyIndex) => (
+                        <div
+                          key={`${wall.id}-${copyIndex}`}
+                          className={`wall-tile ${drag ? "wall-dragging" : ""}`}
+                          style={tokenStyle(position)}
+                          data-wall-sides={wall.sides.join(",")}
+                        >
+                          {wall.sides.map((side) => (
+                            <i key={side} className={`wall-edge wall-${side}`} />
+                          ))}
+                        </div>
+                      ))
+                    : [],
+                ),
+              )}
+            </div>
+
             <div className="board-tokens" aria-hidden="true">
               {entities.flatMap(({ entity, row, col }) => {
                 const meta = entityToken(entity.kind);
@@ -466,7 +487,7 @@ export default function Home() {
 
             {drag?.axis && (
               <div className={`drag-guide guide-${drag.axis}`} style={{ "--line": drag.line } as CSSProperties}>
-                {drag.blocked ? "ROCK BLOCK" : drag.axis === "row" ? "ROW" : "COLUMN"}
+                {drag.blocked ? "WALL BLOCK" : drag.axis === "row" ? "ROW" : "COLUMN"}
               </div>
             )}
           </div>

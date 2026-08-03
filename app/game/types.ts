@@ -9,7 +9,6 @@ export type EntityKind =
   | "exit"
   | "potion"
   | "spike"
-  | "rock"
   | "slime";
 
 export type EventType =
@@ -51,6 +50,12 @@ export interface Entity {
 }
 
 export type Board = Array<Array<Entity | null>>;
+export type WallSide = "top" | "right" | "bottom" | "left";
+export interface WallTile {
+  id: string;
+  sides: WallSide[];
+}
+export type WallBoard = Array<Array<WallTile | null>>;
 
 export interface Position {
   row: number;
@@ -85,6 +90,7 @@ export type GameStatus = "playing" | "clear" | "gameover";
 
 export interface GeneratedFloor {
   board: Board;
+  walls: WallBoard;
   solution: Move[];
 }
 
@@ -92,6 +98,7 @@ export interface GameState {
   floor: number;
   turn: number;
   board: Board;
+  walls: WallBoard;
   player: PlayerState;
   status: GameStatus;
   message: string;

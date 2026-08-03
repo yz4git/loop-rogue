@@ -1,10 +1,13 @@
 import {
   BOARD_SIZE,
+  CENTER,
   type Axis,
   type Board,
   type Entity,
   type Move,
   type Position,
+  type WallBoard,
+  type WallSide,
 } from "./types";
 
 export function mod(value: number, size = BOARD_SIZE): number {
@@ -19,6 +22,18 @@ export function emptyBoard(): Board {
 
 export function cloneBoard(board: Board): Board {
   return board.map((row) => row.map((cell) => (cell ? { ...cell } : null)));
+}
+
+export function emptyWalls(): WallBoard {
+  return Array.from({ length: BOARD_SIZE }, () =>
+    Array.from({ length: BOARD_SIZE }, () => null),
+  );
+}
+
+export function cloneWalls(walls: WallBoard): WallBoard {
+  return walls.map((row) =>
+    row.map((wall) => (wall ? { ...wall, sides: [...wall.sides] } : null)),
+  );
 }
 
 export function findEntity(board: Board, kind: Entity["kind"]): Position | null {
@@ -73,15 +88,27 @@ export function slideBoard(board: Board, move: Move): Board {
   return next;
 }
 
-/** 岩が次の1マスで中央へ押し込まれる操作は、主人公との衝突として遮断する。 */
-export function isMoveBlockedByRock(board: Board, move: Move): boolean {
-  if (move.line !== Math.floor(BOARD_SIZE / 2)) return false;
-  const source = mod(Math.floor(BOARD_SIZE / 2) - move.delta);
-  const entity =
-    move.axis === "row"
-      ? board[Math.floor(BOARD_SIZE / 2)][source]
-      : board[source][Math.floor(BOARD_SIZE / 2)];
-  return entity?.kind === "rock";
+export function slideWalls(walls: WallBoard, move: Move): WallBoard {
+  const next = cloneWalls(walls);
+  for (let index = 0; index < BOARD_SIZE; index += 1) {
+    const sourceIndex = mod(index - move.delta);
+    if (move.axis === "row") next[move.line][index] = walls[move.line][sourceIndex];
+    else next[index][move.line] = walls[sourceIndex][move.line];
+  }
+  return next;
+}
+
+export function leadingWallSide(move: Move): WallSide {
+  if (move.axis === "row") return move.delta === 1 ? "right" : "left";
+  return move.delta === 1 ? "bottom" : "top";
+}
+
+/** 中央へ入る床の進行方向側に壁がある時だけ、主人公との衝突として遮断する。 */
+export function isMoveBlockedByWall(walls: WallBoard, move: Move): boolean {
+  if (move.line !== CENTER) return false;
+  const source = mod(CENTER - move.delta);
+  const wall = move.axis === "row" ? walls[CENTER][source] : walls[source][CENTER];
+  return wall?.sides.includes(leadingWallSide(move)) ?? false;
 }
 
 export function moveLabel(move: Move): string {
