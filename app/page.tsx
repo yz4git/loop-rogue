@@ -55,6 +55,24 @@ const UPGRADE_POOL: UpgradeOption[] = [
 // SSRと初回クライアント描画を一致させ、再スタート時だけ新しい乱数を使う。
 const INITIAL_SEED = 20260802;
 
+type FloorGrid = number[][];
+
+function createFloorGrid(seed = 1): FloorGrid {
+  return Array.from({ length: BOARD_SIZE }, (_, row) =>
+    Array.from({ length: BOARD_SIZE }, (_, col) => seed * 100 + row * BOARD_SIZE + col),
+  );
+}
+
+function slideFloorGrid(grid: FloorGrid, move: Move): FloorGrid {
+  const next = grid.map((row) => [...row]);
+  for (let index = 0; index < BOARD_SIZE; index += 1) {
+    const source = (index - move.delta + BOARD_SIZE) % BOARD_SIZE;
+    if (move.axis === "row") next[move.line][index] = grid[move.line][source];
+    else next[index][move.line] = grid[source][move.line];
+  }
+  return next;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -86,6 +104,14 @@ function tokenStyle(position: { x: number; y: number }): CSSProperties {
   };
 }
 
+function floorTileStyle(position: { x: number; y: number }, tileId: number): CSSProperties {
+  return {
+    ...tokenStyle(position),
+    "--joint-x": `${34 + (tileId % 4) * 9}%`,
+    "--stone-shade": `${96 + (tileId % 5) * 4}%`,
+  } as CSSProperties;
+}
+
 function eventTone(type: GameState["event"]["type"]): [number, number] {
   switch (type) {
     case "pickup":
@@ -115,7 +141,7 @@ export default function Home() {
   const [soundOn, setSoundOn] = useState(true);
   const [selectedUpgrade, setSelectedUpgrade] = useState<UpgradeId | null>(null);
   const [moving, setMoving] = useState(false);
-  const [activeMove, setActiveMove] = useState<Move | null>(null);
+  const [floorGrid, setFloorGrid] = useState<FloorGrid>(() => createFloorGrid(1));
   const boardRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
@@ -181,16 +207,17 @@ export default function Home() {
       if (movingRef.current || game.status !== "playing") return;
       movingRef.current = true;
       setMoving(true);
-      setActiveMove(move);
       setHintVisible(false);
+      if (!isMoveBlockedByRock(game.board, move)) {
+        setFloorGrid((current) => slideFloorGrid(current, move));
+      }
       setGame((current) => applyMove(current, move));
       window.setTimeout(() => {
         movingRef.current = false;
         setMoving(false);
-        setActiveMove(null);
       }, 360);
     },
-    [game.status],
+    [game.board, game.status],
   );
 
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -287,6 +314,7 @@ export default function Home() {
   const restart = () => {
     setSelectedUpgrade(null);
     setHintVisible(false);
+    setFloorGrid(createFloorGrid(Date.now()));
     setGame(resetGame());
   };
 
@@ -303,6 +331,7 @@ export default function Home() {
   const goNextFloor = () => {
     if (!selectedUpgrade) return;
     setSelectedUpgrade(null);
+    setFloorGrid(createFloorGrid(game.floor + 1));
     setGame((current) => nextFloor(current, current.player));
   };
 
@@ -326,11 +355,6 @@ export default function Home() {
     game.event.type === "blocked" ? "board-blocked" : "",
     game.event.type === "levelup" ? "board-levelup" : "",
   ].join(" ");
-
-  const patternAxis = drag?.axis ?? activeMove?.axis ?? null;
-  const patternLine = drag?.axis ? drag.line : activeMove?.line ?? CENTER;
-  const patternOffset = drag?.axis ? drag.offsetPx : 0;
-  const patternDelta = activeMove?.delta ?? 1;
 
   return (
     <main className="game-shell">
@@ -377,22 +401,34 @@ export default function Home() {
             onPointerLeave={(event) => { if (drag) updateDrag(event); }}
             onKeyDown={onBoardKeyDown}
           >
-            {patternAxis && (
+            {drag?.axis && (
               <div
-                className={`line-pattern pattern-${patternAxis} ${drag ? "pattern-dragging" : "pattern-settling"} ${patternDelta > 0 ? "pattern-positive" : "pattern-negative"} ${drag?.blocked ? "pattern-blocked" : ""}`}
-                style={{ "--line": patternLine, "--pattern-offset": `${patternOffset}px` } as CSSProperties}
+                className={`line-highlight highlight-${drag.axis} ${drag.blocked ? "highlight-blocked" : ""}`}
+                style={{ "--line": drag.line } as CSSProperties}
                 aria-hidden="true"
               />
             )}
-            <div className="board-cells" aria-hidden="true">
-              {Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => {
-                const row = Math.floor(index / BOARD_SIZE);
-                const col = index % BOARD_SIZE;
-                const isCenter = row === CENTER && col === CENTER;
-                const checker = (row + col) % 2 === 0 ? "cell-light" : "cell-dark";
-                return <div key={index} className={`board-cell ${checker} ${isCenter ? "cell-center" : ""}`} />;
-              })}
+            <div className="floor-layer" aria-hidden="true">
+              {floorGrid.flatMap((rowTiles, row) =>
+                rowTiles.flatMap((tileId, col) =>
+                  tokenCopies(row, col, drag).map((position, copyIndex) => (
+                    <div
+                      key={`floor-${tileId}-${copyIndex}`}
+                      data-floor-id={tileId}
+                      className={`world-floor-tile floor-variant-${tileId % 4} ${drag ? "floor-dragging" : ""}`}
+                      style={floorTileStyle(position, tileId)}
+                    >
+                      <i className="brick-line brick-line-one" />
+                      <i className="brick-line brick-line-two" />
+                      <i className="brick-joint brick-joint-one" />
+                      <i className="brick-joint brick-joint-two" />
+                      <i className="brick-joint brick-joint-three" />
+                    </div>
+                  )),
+                ),
+              )}
             </div>
+            <div className="center-floor-glow" aria-hidden="true" />
 
             <div className="board-tokens" aria-hidden="true">
               {entities.flatMap(({ entity, row, col }) => {
