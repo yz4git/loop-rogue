@@ -1,6 +1,5 @@
 import {
   BOARD_SIZE,
-  CENTER,
   type Axis,
   type Board,
   type Entity,
@@ -103,14 +102,6 @@ export function leadingWallSide(move: Move): WallSide {
   return move.delta === 1 ? "bottom" : "top";
 }
 
-/** 中央へ入る床の進行方向側に壁がある時だけ、主人公との衝突として遮断する。 */
-export function isMoveBlockedByWall(walls: WallBoard, move: Move): boolean {
-  if (move.line !== CENTER) return false;
-  const source = mod(CENTER - move.delta);
-  const wall = move.axis === "row" ? walls[CENTER][source] : walls[source][CENTER];
-  return wall?.sides.includes(leadingWallSide(move)) ?? false;
-}
-
 export function moveLabel(move: Move): string {
   if (move.axis === "row") {
     return move.delta === 1
@@ -134,6 +125,40 @@ export function positionAfterMove(position: Position, move: Move): Position {
     return { row: mod(position.row + move.delta), col: position.col };
   }
   return position;
+}
+
+export function moveForPlayer(position: Position, axis: Axis, delta: SlideDelta): Move {
+  return {
+    axis,
+    line: axis === "row" ? position.row : position.col,
+    delta,
+  };
+}
+
+function oppositeWallSide(side: WallSide): WallSide {
+  if (side === "top") return "bottom";
+  if (side === "right") return "left";
+  if (side === "bottom") return "top";
+  return "right";
+}
+
+/** 主人公の一歩と、進行方向へ流れる行・列の両方を壁で判定する。 */
+export function isMoveBlockedByWall(
+  walls: WallBoard,
+  position: Position,
+  move: Move,
+): boolean {
+  const expectedLine = move.axis === "row" ? position.row : position.col;
+  if (move.line !== expectedLine) return true;
+
+  const side = leadingWallSide(move);
+  const destination = positionAfterMove(position, move);
+  const currentWall = walls[position.row][position.col];
+  const destinationWall = walls[destination.row][destination.col];
+  return Boolean(
+    currentWall?.sides.includes(side) ||
+    destinationWall?.sides.includes(oppositeWallSide(side)),
+  );
 }
 
 export function lineContainsCenter(move: Move): boolean {

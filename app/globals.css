@@ -132,7 +132,7 @@ h1 {
 
 .hud {
   display: grid;
-  grid-template-columns: minmax(130px, 1.8fr) repeat(4, minmax(48px, 0.7fr));
+  grid-template-columns: minmax(130px, 1.8fr) repeat(5, minmax(48px, 0.7fr));
   gap: 7px;
   margin-bottom: 12px;
 }
@@ -394,16 +394,13 @@ h1 {
   transition: none;
 }
 
-.center-floor-glow {
+.player-floor-glow {
   position: absolute;
   z-index: 2;
-  top: calc(3 * 100% / 7);
-  left: calc(3 * 100% / 7);
-  width: calc(100% / 7);
-  height: calc(100% / 7);
   background: radial-gradient(circle, rgba(79, 174, 187, 0.36), rgba(44, 92, 111, 0.08));
   box-shadow: inset 0 0 20px rgba(108, 229, 232, 0.14);
   pointer-events: none;
+  transition: left 220ms cubic-bezier(0.2, 0.85, 0.3, 1), top 220ms cubic-bezier(0.2, 0.85, 0.3, 1);
 }
 
 .wall-layer {
@@ -529,6 +526,32 @@ h1 {
   animation: enemy-trail 520ms ease-out both;
 }
 
+.effect-enemyIntent span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 2px solid rgba(255, 123, 140, 0.9);
+  border-radius: 50%;
+  background: rgba(93, 26, 48, 0.76);
+  color: #ffd7dc;
+  font-size: 22px;
+  box-shadow: 0 0 18px rgba(255, 91, 122, 0.72);
+  animation: intent-pulse 720ms ease-in-out infinite;
+}
+
+.effect-combo span {
+  min-width: 106px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 209, 107, 0.68);
+  border-radius: 99px;
+  background: rgba(74, 54, 20, 0.78);
+  color: var(--gold);
+  font-size: 12px;
+  text-align: center;
+  animation: combo-burst 720ms ease-out both;
+}
+
 .effect-enemyHit::before {
   width: 18%;
   aspect-ratio: 1;
@@ -608,6 +631,12 @@ h1 {
   box-shadow: 0 0 15px rgba(109, 229, 163, 0.22);
 }
 
+.token-relic .token-glyph {
+  background: rgba(192, 142, 255, 0.13);
+  box-shadow: 0 0 17px rgba(192, 142, 255, 0.4);
+  animation: relic-glimmer 1.8s ease-in-out infinite;
+}
+
 .token-spike .token-glyph {
   background: rgba(255, 123, 140, 0.12);
 }
@@ -616,6 +645,11 @@ h1 {
 .token-slime .token-glyph {
   background: rgba(97, 225, 145, 0.11);
   box-shadow: 0 0 15px rgba(97, 225, 145, 0.24);
+}
+
+.combo-value {
+  color: var(--gold) !important;
+  text-shadow: 0 0 10px rgba(255, 209, 107, 0.55);
 }
 
 .token-enemy-moved .token-glyph {
@@ -638,10 +672,8 @@ h1 {
   font-weight: 800;
 }
 
-.center-marker {
+.player-marker {
   position: absolute;
-  top: calc(3 * 100% / 7);
-  left: calc(3 * 100% / 7);
   z-index: 5;
   display: flex;
   width: calc(100% / 7);
@@ -656,16 +688,18 @@ h1 {
   box-shadow: 0 0 22px rgba(108, 229, 232, 0.25), inset 0 0 13px rgba(108, 229, 232, 0.16);
   pointer-events: none;
   animation: center-breathe 2.1s ease-in-out infinite;
+  transition: left 220ms cubic-bezier(0.2, 0.85, 0.3, 1), top 220ms cubic-bezier(0.2, 0.85, 0.3, 1);
+  will-change: left, top;
 }
 
-.center-marker span {
+.player-marker span {
   color: rgba(226, 255, 255, 0.82);
   font-size: clamp(7px, 1.9vw, 10px);
   font-weight: 900;
   letter-spacing: 0.12em;
 }
 
-.center-marker b {
+.player-marker b {
   color: var(--cyan);
   font-size: clamp(17px, 5vw, 26px);
   line-height: 0.95;
@@ -801,6 +835,12 @@ h1 {
   color: var(--muted);
   font-size: 10px;
   line-height: 1.5;
+}
+
+.gesture-guide small {
+  flex-basis: 100%;
+  color: var(--faint);
+  font-size: 9px;
 }
 
 .gesture-icon {
@@ -1092,6 +1132,22 @@ h1 {
   100% { opacity: 1; transform: scale(1); }
 }
 
+@keyframes intent-pulse {
+  0%, 100% { opacity: 0.68; transform: scale(0.82); }
+  50% { opacity: 1; transform: scale(1.12); }
+}
+
+@keyframes combo-burst {
+  0% { opacity: 0; transform: translateY(10px) scale(0.65); }
+  28%, 72% { opacity: 1; transform: translateY(-10px) scale(1); }
+  100% { opacity: 0; transform: translateY(-28px) scale(1.08); }
+}
+
+@keyframes relic-glimmer {
+  0%, 100% { filter: drop-shadow(0 4px 5px rgba(0, 0, 0, 0.32)); }
+  50% { filter: drop-shadow(0 0 9px rgba(192, 142, 255, 0.8)); }
+}
+
 @keyframes wall-block {
   0%, 100% { filter: none; }
   45% { filter: brightness(1.45) drop-shadow(0 0 6px rgba(255, 123, 140, 0.85)); }
@@ -1120,7 +1176,7 @@ h1 {
   }
 
   .hud {
-    grid-template-columns: minmax(122px, 1.6fr) repeat(4, minmax(43px, 0.64fr));
+    grid-template-columns: minmax(0, 1.6fr) repeat(5, minmax(0, 0.64fr));
     gap: 5px;
   }
 

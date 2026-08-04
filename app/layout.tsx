@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Loop Rogue — 世界をスライドして攻略する",
-  description: "主人公は動かない。7×7の世界をスライドして鍵と出口を中央へ運ぶローグライトパズル。",
+  title: "Loop Rogue — 自分が進み、世界が流れる",
+  description: "主人公をスワイプで動かし、その行と列を流して戦う7×7ターン型アクションRPG。",
   other: {
     "codex-preview": "development",
   },
@@ -30,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="ja">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

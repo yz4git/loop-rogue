@@ -20,21 +20,19 @@ import {
   upgradePlayer,
   xpToNextLevel,
 } from "./game/engine";
-import { CENTER, BOARD_SIZE, type Axis, type GameState, type Move } from "./game/types";
-import { isMoveBlockedByWall, listEntities } from "./game/board";
+import { BOARD_SIZE, type Axis, type GameState, type Move } from "./game/types";
+import { isMoveBlockedByWall, listEntities, moveForPlayer } from "./game/board";
 
 interface DragState {
   pointerId: number;
   startX: number;
   startY: number;
-  startRow: number;
-  startCol: number;
   axis: Axis | null;
   line: number;
-  offsetPx: number;
   offsetCells: number;
   intentPx: number;
   blocked: boolean;
+  repeatCount: number;
 }
 
 type UpgradeId = "attack" | "maxHp" | "heal";
@@ -47,7 +45,7 @@ interface UpgradeOption {
 }
 
 const UPGRADE_POOL: UpgradeOption[] = [
-  { id: "attack", icon: "⚔️", title: "攻撃力 +1", description: "中央へ運んだスライムを一撃で倒しやすくなる" },
+  { id: "attack", icon: "⚔️", title: "攻撃力 +1", description: "スライムへの一撃が強くなる" },
   { id: "maxHp", icon: "💖", title: "最大HP +2", description: "最大HPと現在HPが2増える" },
   { id: "heal", icon: "✨", title: "回復量 +1", description: "回復薬の回復量が1増える" },
 ];
@@ -104,6 +102,14 @@ function tokenStyle(position: { x: number; y: number }): CSSProperties {
   };
 }
 
+function playerStyle(position: { row: number; col: number }, drag: DragState | null): CSSProperties {
+  let x = position.col;
+  let y = position.row;
+  if (drag?.axis === "row" && drag.line === position.row) x += drag.offsetCells;
+  if (drag?.axis === "col" && drag.line === position.col) y += drag.offsetCells;
+  return tokenStyle({ x, y });
+}
+
 function floorTileStyle(position: { x: number; y: number }, tileId: number): CSSProperties {
   return {
     ...tokenStyle(position),
@@ -144,9 +150,13 @@ export default function Home() {
   const [floorGrid, setFloorGrid] = useState<FloorGrid>(() => createFloorGrid(1));
   const boardRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  const gameRef = useRef(game);
   const audioRef = useRef<AudioContext | null>(null);
   const previousEventId = useRef(game.event.id);
-  const movingRef = useRef(false);
+
+  useEffect(() => {
+    gameRef.current = game;
+  }, [game]);
 
   const ensureAudio = useCallback(() => {
     if (!soundOn || typeof window === "undefined") return null;
@@ -194,8 +204,12 @@ export default function Home() {
   useEffect(() => {
     if (game.event.id === previousEventId.current) return;
     previousEventId.current = game.event.id;
-    if (soundOn) playEventSound(game.event.type);
-  }, [game.event.id, game.event.type, playEventSound, soundOn]);
+    if (soundOn) {
+      playEventSound(game.event.type);
+      if (game.event.effects.some((effect) => effect.type === "enemyIntent")) playTone(230, 0.14);
+      if (game.event.effects.some((effect) => effect.type === "combo")) playTone(760, 0.1, 0.06);
+    }
+  }, [game.event, playEventSound, playTone, soundOn]);
 
   const upgradeOptions = useMemo(() => {
     const offset = (game.floor - 1) % UPGRADE_POOL.length;
@@ -203,43 +217,40 @@ export default function Home() {
   }, [game.floor]);
 
   const commitMove = useCallback(
-    (move: Move) => {
-      if (movingRef.current || game.status !== "playing") return;
-      movingRef.current = true;
+    (move: Move): boolean => {
+      const current = gameRef.current;
+      if (current.status !== "playing") return false;
       setMoving(true);
       setHintVisible(false);
-      if (!isMoveBlockedByWall(game.walls, move)) {
+      const next = applyMove(current, move);
+      gameRef.current = next;
+      setGame(next);
+      if (next.turn !== current.turn) {
         setFloorGrid((current) => slideFloorGrid(current, move));
       }
-      setGame((current) => applyMove(current, move));
       window.setTimeout(() => {
-        movingRef.current = false;
         setMoving(false);
-      }, 360);
+      }, 260);
+      return next.turn !== current.turn;
     },
-    [game.status, game.walls],
+    [],
   );
 
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (game.status !== "playing" || movingRef.current) return;
+    if (gameRef.current.status !== "playing") return;
     const board = boardRef.current;
     if (!board) return;
     ensureAudio();
-    const rect = board.getBoundingClientRect();
-    const startCol = clamp(Math.floor(((event.clientX - rect.left) / rect.width) * BOARD_SIZE), 0, BOARD_SIZE - 1);
-    const startRow = clamp(Math.floor(((event.clientY - rect.top) / rect.height) * BOARD_SIZE), 0, BOARD_SIZE - 1);
     const next: DragState = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      startRow,
-      startCol,
       axis: null,
-      line: startRow,
-      offsetPx: 0,
+      line: gameRef.current.playerPosition.row,
       offsetCells: 0,
       intentPx: 0,
       blocked: false,
+      repeatCount: 0,
     };
     dragRef.current = next;
     setDrag(next);
@@ -258,22 +269,37 @@ export default function Home() {
     const rawOffset = axis === "row" ? dx : dy;
     const board = boardRef.current;
     const cellSize = board ? board.getBoundingClientRect().width / BOARD_SIZE : 40;
-    const line = axis === "row" ? current.startRow : current.startCol;
-    const intendedMove: Move = {
-      axis,
-      line,
-      delta: rawOffset >= 0 ? 1 : -1,
-    };
-    const blocked = Math.abs(rawOffset) > 1 && isMoveBlockedByWall(game.walls, intendedMove);
-    const visualOffset = blocked ? clamp(rawOffset * 0.12, -7, 7) : rawOffset;
+    const direction: 1 | -1 = rawOffset >= 0 ? 1 : -1;
+    const repeatStep = Math.max(28, cellSize * 0.82);
+    const targetRepeats = Math.abs(rawOffset) < 18 ? 0 : 1 + Math.floor((Math.abs(rawOffset) - 18) / repeatStep);
+    let repeatCount = current.repeatCount;
+    let blocked = false;
+    while (repeatCount < targetRepeats) {
+      const live = gameRef.current;
+      const move = moveForPlayer(live.playerPosition, axis, direction);
+      if (isMoveBlockedByWall(live.walls, live.playerPosition, move)) {
+        blocked = true;
+        break;
+      }
+      if (!commitMove(move)) {
+        blocked = true;
+        break;
+      }
+      repeatCount += 1;
+    }
+    const live = gameRef.current;
+    const line = axis === "row" ? live.playerPosition.row : live.playerPosition.col;
+    const consumedPx = repeatCount > 0 ? 18 + (repeatCount - 1) * repeatStep : 0;
+    const residualPx = Math.max(0, Math.abs(rawOffset) - consumedPx);
+    const visualOffset = blocked ? direction * Math.min(8, Math.abs(rawOffset) * 0.12) : direction * Math.min(cellSize * 0.78, residualPx);
     const next: DragState = {
       ...current,
       axis,
       line,
-      offsetPx: clamp(visualOffset, -cellSize * 1.18, cellSize * 1.18),
-      offsetCells: clamp(visualOffset / cellSize, -1.18, 1.18),
+      offsetCells: visualOffset / cellSize,
       intentPx: rawOffset,
       blocked,
+      repeatCount,
     };
     dragRef.current = next;
     setDrag(next);
@@ -286,12 +312,9 @@ export default function Home() {
     dragRef.current = null;
     setDrag(null);
     const distance = Math.abs(current.intentPx);
-    if (current.axis && distance >= 18) {
-      commitMove({
-        axis: current.axis,
-        line: current.line,
-        delta: current.intentPx >= 0 ? 1 : -1,
-      });
+    if (current.axis && distance >= 18 && current.repeatCount === 0) {
+      const live = gameRef.current;
+      commitMove(moveForPlayer(live.playerPosition, current.axis, current.intentPx >= 0 ? 1 : -1));
     }
   };
 
@@ -303,11 +326,13 @@ export default function Home() {
   const onBoardKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
-      commitMove({ axis: "row", line: CENTER, delta: event.key === "ArrowRight" ? 1 : -1 });
+      const live = gameRef.current;
+      commitMove(moveForPlayer(live.playerPosition, "row", event.key === "ArrowRight" ? 1 : -1));
     }
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
-      commitMove({ axis: "col", line: CENTER, delta: event.key === "ArrowDown" ? 1 : -1 });
+      const live = gameRef.current;
+      commitMove(moveForPlayer(live.playerPosition, "col", event.key === "ArrowDown" ? 1 : -1));
     }
   };
 
@@ -315,7 +340,9 @@ export default function Home() {
     setSelectedUpgrade(null);
     setHintVisible(false);
     setFloorGrid(createFloorGrid(Date.now()));
-    setGame(resetGame());
+    const next = resetGame();
+    gameRef.current = next;
+    setGame(next);
   };
 
   const chooseUpgrade = (upgrade: UpgradeId) => {
@@ -332,7 +359,9 @@ export default function Home() {
     if (!selectedUpgrade) return;
     setSelectedUpgrade(null);
     setFloorGrid(createFloorGrid(game.floor + 1));
-    setGame((current) => nextFloor(current, current.player));
+    const next = nextFloor(gameRef.current, gameRef.current.player);
+    gameRef.current = next;
+    setGame(next);
   };
 
   const showHint = () => {
@@ -347,7 +376,7 @@ export default function Home() {
   const hpPercent = `${clamp((game.player.hp / game.player.maxHp) * 100, 0, 100)}%`;
   const xpGoal = xpToNextLevel(game.player.level);
   const xpPercent = `${clamp((game.player.xp / xpGoal) * 100, 0, 100)}%`;
-  const objective = game.player.hasKey ? "出口を中央へ運ぶ" : "鍵を中央へ運ぶ";
+  const objective = game.player.hasKey ? "出口へ進む" : "鍵を探す";
   const boardClassName = [
     "board-shell",
     game.event.type === "damage" || game.event.type === "gameover" ? "board-shake" : "",
@@ -361,7 +390,7 @@ export default function Home() {
       <header className="game-header">
         <div>
           <div className="eyebrow"><span className="eyebrow-dot" /> LOOP ROGUE</div>
-          <h1>世界をスライドして、運命を中央へ。</h1>
+          <h1>自分が進み、世界があとから流れる。</h1>
         </div>
         <div className="floor-badge"><span>FLOOR</span><strong>{String(game.floor).padStart(2, "0")}</strong></div>
       </header>
@@ -374,6 +403,7 @@ export default function Home() {
         <div className="stat"><span className="stat-label">攻撃</span><strong>⚔ {game.player.attack}</strong></div>
         <div className="stat"><span className="stat-label">防御</span><strong>🛡 {game.player.defense}</strong></div>
         <div className="stat"><span className="stat-label">鍵</span><strong>{game.player.hasKey ? "🔑" : "—"}</strong></div>
+        <div className="stat"><span className="stat-label">COMBO</span><strong className={game.player.combo >= 3 ? "combo-value" : ""}>×{game.player.combo}</strong></div>
         <div className="stat"><span className="stat-label">TURN</span><strong>{game.turn}</strong></div>
       </section>
 
@@ -392,7 +422,7 @@ export default function Home() {
             ref={boardRef}
             className={`board ${drag ? "is-dragging" : ""} ${moving ? "is-moving" : ""}`}
             role="grid"
-            aria-label="7行7列のループ盤面。行または列をスワイプしてください"
+            aria-label="7行7列のループ盤面。主人公の向きへスワイプしてください"
             tabIndex={0}
             onPointerDown={startDrag}
             onPointerMove={updateDrag}
@@ -428,7 +458,7 @@ export default function Home() {
                 ),
               )}
             </div>
-            <div className="center-floor-glow" aria-hidden="true" />
+            <div className="player-floor-glow" style={playerStyle(game.playerPosition, drag)} aria-hidden="true" />
 
             <div className="wall-layer" aria-hidden="true">
               {game.walls.flatMap((wallRow, row) =>
@@ -475,14 +505,14 @@ export default function Home() {
                   className={`visual-effect effect-${effect.type}`}
                   style={tokenStyle({ x: effect.col, y: effect.row })}
                 >
-                  <span>{effect.type === "attack" ? "⚔" : effect.type === "enemyMove" ? "➜" : effect.type === "blocked" ? "✕" : effect.type === "heal" ? "✦" : effect.text}</span>
+                  <span>{effect.type === "attack" ? "⚔" : effect.type === "enemyMove" ? "➜" : effect.type === "enemyIntent" ? "!" : effect.type === "combo" ? "✦" : effect.type === "blocked" ? "✕" : effect.type === "heal" ? "✦" : effect.text}</span>
                 </div>
               ))}
             </div>
 
-            <div className={`center-marker ${game.event.id ? "center-ready" : ""}`}>
+            <div className="player-marker" style={playerStyle(game.playerPosition, drag)} title={`主人公 ${game.playerPosition.row + 1}行${game.playerPosition.col + 1}列`}>
               <span>YOU</span>
-              <b>✦</b>
+              <b>🧙</b>
             </div>
 
             {drag?.axis && (
@@ -491,7 +521,7 @@ export default function Home() {
               </div>
             )}
           </div>
-          <div className="board-caption"><span>✦</span> 中央の主人公は動かない <i /> 世界がループする</div>
+          <div className="board-caption"><span>✦</span> 主人公の行・列が流れる <i /> 端はループする</div>
         </div>
 
         <div className="message-card" aria-live="polite">
@@ -505,7 +535,7 @@ export default function Home() {
       </section>
 
       <section className="controls" aria-label="操作説明">
-        <div className="gesture-guide"><span className="gesture-icon">↔</span><span>行を左右にスワイプ</span><span className="gesture-icon">↕</span><span>列を上下にスワイプ</span></div>
+        <div className="gesture-guide"><span className="gesture-icon">↔</span><span>主人公を左右へ</span><span className="gesture-icon">↕</span><span>主人公を上下へ</span><small>長く滑らせると連続移動</small></div>
         <div className="control-buttons">
           <button className="secondary-button" onClick={showHint}>💡 ヒント</button>
           <button className="secondary-button" onClick={restart}>↻ 再スタート</button>
@@ -516,7 +546,7 @@ export default function Home() {
       </section>
 
       <section className="legend" aria-label="オブジェクト一覧">
-        <span><b>🔑</b>鍵</span><span><b>🚪</b>出口</span><span><b>🧪</b>回復</span><span><b>🔺</b>トゲ</span><span><b>🪨</b>岩</span><span><b>🟢</b>敵</span>
+        <span><b>🔑</b>鍵</span><span><b>🚪</b>出口</span><span><b>🧪</b>回復</span><span><b>💠</b>遺物</span><span><b>🔺</b>トゲ</span><span><b>🟢</b>敵</span>
       </section>
 
       {game.status !== "playing" && (
@@ -526,7 +556,7 @@ export default function Home() {
               <>
                 <div className="result-orb">✦</div>
                 <span className="result-kicker">FLOOR CLEARED</span>
-                <h2>中央を制した。</h2>
+                <h2>脱出に成功した。</h2>
                 <p>次のフロアへ進む前に、ひとつだけ強化を選ぼう。</p>
                 <div className="upgrade-grid">
                   {upgradeOptions.map((option) => (

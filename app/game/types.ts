@@ -9,7 +9,8 @@ export type EntityKind =
   | "exit"
   | "potion"
   | "spike"
-  | "slime";
+  | "slime"
+  | "relic";
 
 export type EventType =
   | "slide"
@@ -31,7 +32,9 @@ export type EffectType =
   | "heal"
   | "pickup"
   | "blocked"
-  | "levelup";
+  | "levelup"
+  | "enemyIntent"
+  | "combo";
 
 export interface VisualEffect {
   id: string;
@@ -77,6 +80,8 @@ export interface PlayerState {
   hasKey: boolean;
   level: number;
   xp: number;
+  combo: number;
+  relics: number;
 }
 
 export interface GameEvent {
@@ -99,6 +104,8 @@ export interface GameState {
   turn: number;
   board: Board;
   walls: WallBoard;
+  playerPosition: Position;
+  enemyWarnings: string[];
   player: PlayerState;
   status: GameStatus;
   message: string;
