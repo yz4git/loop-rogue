@@ -6,6 +6,7 @@ import { VoxelWorld } from "../src/world/VoxelWorld";
 import { VoxelType } from "../src/world/VoxelDefinitions";
 import { ProceduralStageSource, WORLD_GENERATOR_VERSION } from "../src/stages/ProceduralStageSource";
 import { createStageArray, setStageVoxel, type StageSnapshot, type StageSource } from "../src/stages/StageSource";
+import { VoxelPlayerCollision } from "../src/player/VoxelPlayerCollision";
 
 class CollisionTestStage implements StageSource {
   readonly id = "collision-test";
@@ -95,16 +96,68 @@ test("接地判定は足裏と重なるセルだけを使い、隣の段差で�
   world.dispose();
 });
 
-test("1ボクセル段差は上面の正確な高さへ接地し、高所では吸着せず落下する", () => {
+test("高所では吸着せず、床まで連続して落下する", () => {
   const world = new VoxelWorld(new CollisionTestStage());
-  const onStep = new THREE.Vector3(4.5, 1, 3.5);
-  assert.equal(world.findSupportY(onStep, 0.32, 1.4, 0.02, 1.05), 2);
-  const exactStepCenter = new THREE.Vector3(4.5, 2 + 1.4 * 0.5, 3.5);
-  assert.equal(world.collidesAabb(exactStepCenter, 0.32, 1.4), false);
+  const collision = new VoxelPlayerCollision(world, 0.32, 1.4, 0.2, 0.24, 0.08);
+  const position = new THREE.Vector3(2.5, 4, 2.5);
+  let velocityY = 0;
+  let previousY = position.y;
+  let landed = false;
+  for (let frame = 0; frame < 180; frame += 1) {
+    velocityY = Math.max(-18, velocityY - 18 / 60);
+    const result = collision.moveVertical(position, velocityY / 60);
+    assert.ok(position.y <= previousY + 0.0001);
+    previousY = position.y;
+    if (result.landed) {
+      landed = true;
+      break;
+    }
+  }
+  assert.equal(landed, true);
+  assert.equal(position.y, 1);
+  world.dispose();
+});
 
-  const falling = new THREE.Vector3(3.5, 4, 3.5);
-  assert.equal(world.findSupportY(falling, 0.32, 1.4, 0.24), null);
-  assert.equal(world.findSupportY(falling, 0.32, 1.4, 4), 1);
+test("水平移動の衝突確認は足元Y座標を変更せず、段差前で浮かない", () => {
+  const world = new VoxelWorld(new CollisionTestStage());
+  const collision = new VoxelPlayerCollision(world, 0.32, 1.4, 0.2, 0.24, 0.08);
+  const flatPosition = new THREE.Vector3(1.5, 1, 2.5);
+  let grounded = true;
+  for (let frame = 0; frame < 120; frame += 1) {
+    grounded = collision.moveHorizontal(flatPosition, 0.025, 0, grounded);
+    assert.equal(flatPosition.y, 1);
+  }
+  assert.equal(grounded, true);
+
+  const stepPosition = new THREE.Vector3(3.5, 1, 3.5);
+  for (let frame = 0; frame < 30; frame += 1) {
+    collision.moveHorizontal(stepPosition, 0.025, 0, true);
+    assert.equal(stepPosition.y, 1);
+  }
+  assert.ok(stepPosition.x < 3.7);
+  world.dispose();
+});
+
+test("実ゲームと同じ衝突処理でジャンプ弧を描き、元の床へ着地する", () => {
+  const world = new VoxelWorld(new CollisionTestStage());
+  const collision = new VoxelPlayerCollision(world, 0.32, 1.4, 0.2, 0.24, 0.08);
+  const position = new THREE.Vector3(2.5, 1, 2.5);
+  let velocityY = GAME_CONFIG.player.jumpVelocity;
+  let maximumY = position.y;
+  let landedFrame = -1;
+  for (let frame = 0; frame < 180; frame += 1) {
+    velocityY = Math.max(-GAME_CONFIG.player.maxFallSpeed, velocityY - GAME_CONFIG.player.gravity / 60);
+    const result = collision.moveVertical(position, velocityY / 60);
+    maximumY = Math.max(maximumY, position.y);
+    if (result.hitCeiling) velocityY = 0;
+    if (result.landed) {
+      landedFrame = frame;
+      break;
+    }
+  }
+  assert.ok(maximumY > 3.3 && maximumY < 3.7);
+  assert.ok(landedFrame >= 55 && landedFrame <= 75);
+  assert.equal(position.y, 1);
   world.dispose();
 });
 
