@@ -1,4 +1,4 @@
-import { hashSeed } from "./SeededRandom";
+import { hashCoords } from "./SeededRandom";
 
 function fade(value: number): number { return value * value * (3 - 2 * value); }
 function lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
@@ -13,7 +13,7 @@ export class ValueNoise2D {
     const z0 = Math.floor(z);
     const tx = fade(x - x0);
     const tz = fade(z - z0);
-    const corner = (cx: number, cz: number): number => hashSeed(`${cx},${cz}`, `${this.seed}`) / 4294967295 * 2 - 1;
+    const corner = (cx: number, cz: number): number => hashCoords(this.seed, cx, 0, cz) / 4294967295 * 2 - 1;
     return lerp(lerp(corner(x0, z0), corner(x0 + 1, z0), tx), lerp(corner(x0, z0 + 1), corner(x0 + 1, z0 + 1), tx), tz);
   }
 
@@ -44,7 +44,7 @@ export class ValueNoise3D {
     const tx = fade(x - x0);
     const ty = fade(y - y0);
     const tz = fade(z - z0);
-    const corner = (cx: number, cy: number, cz: number): number => hashSeed(`${cx},${cy},${cz}`, `${this.seed}`) / 4294967295 * 2 - 1;
+    const corner = (cx: number, cy: number, cz: number): number => hashCoords(this.seed, cx, cy, cz) / 4294967295 * 2 - 1;
     const x00 = lerp(corner(x0, y0, z0), corner(x0 + 1, y0, z0), tx);
     const x10 = lerp(corner(x0, y0 + 1, z0), corner(x0 + 1, y0 + 1, z0), tx);
     const x01 = lerp(corner(x0, y0, z0 + 1), corner(x0 + 1, y0, z0 + 1), tx);
