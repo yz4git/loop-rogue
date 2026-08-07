@@ -33,8 +33,10 @@ export const GAME_CONFIG = {
     moveSpeed: 4.5,
     acceleration: 22,
     airControl: 0.4,
-    jumpVelocity: 8,
-    gravity: 20,
+    // Tuned for a readable arc on iPhone: about one second in the air.
+    jumpVelocity: 9.5,
+    gravity: 18,
+    maxFallSpeed: 18,
     radius: 0.32,
     height: 1.4,
     stepHeight: 0.45,
