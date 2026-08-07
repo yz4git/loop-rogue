@@ -1,4 +1,4 @@
-const CACHE = "voxel-break-lab-v2";
+const CACHE = "loop-rogue-v3";
 const APP_SHELL = ["/", "/manifest.json", "/favicon.svg"];
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)));
