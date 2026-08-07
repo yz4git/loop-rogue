@@ -13,6 +13,24 @@ export interface StageSnapshot {
   types: Uint8Array;
   spawn: StagePoint;
   goal: StagePoint;
+  metadata?: StageMetadata;
+}
+
+export interface StageMetadata {
+  generatorVersion?: number;
+  seed?: string;
+  difficulty?: "easy" | "normal" | "hard";
+  theme?: "mixed" | "forest" | "mountain" | "ruins";
+  reachability?: { reachable: boolean; cost: number; visited: number };
+  caves?: number;
+  carverVoxels?: number;
+  trees?: number;
+  boulders?: number;
+  structures?: number;
+  jigsawPieces?: number;
+  landmarks?: number;
+  enemySpawns?: StagePoint[];
+  coinSpawns?: StagePoint[];
 }
 
 export interface StageSource {
