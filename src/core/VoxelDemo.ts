@@ -19,6 +19,15 @@ export interface DemoStats {
   coins: number;
   status: "playing" | "cleared" | "gameover";
   lastMessage: string;
+  stageMode: "handcrafted" | "procedural";
+  seed: string;
+  generatorVersion: number;
+  generationMs: number;
+  caves: number;
+  structures: number;
+  jigsawPieces: number;
+  reachabilityCost: number;
+  biomeCounts: string;
 }
 
 interface EffectParticle {
@@ -998,6 +1007,15 @@ export class VoxelDemo {
         coins: this.coins,
         status: this.gameState,
         lastMessage: this.lastMessage,
+        stageMode: this.world.metadata?.seed ? "procedural" : "handcrafted",
+        seed: this.world.metadata?.seed ?? "—",
+        generatorVersion: this.world.metadata?.generatorVersion ?? 0,
+        generationMs: this.world.metadata?.generationMs ?? 0,
+        caves: this.world.metadata?.caves ?? 0,
+        structures: this.world.metadata?.structures ?? 0,
+        jigsawPieces: this.world.metadata?.jigsawPieces ?? 0,
+        reachabilityCost: this.world.metadata?.reachability?.cost ?? 0,
+        biomeCounts: Object.entries(this.world.metadata?.biomeCounts ?? {}).map(([key, value]) => `${key}:${value}`).join(" · "),
       });
     }
     this.animationFrame = window.requestAnimationFrame(this.animate);
