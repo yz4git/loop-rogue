@@ -5,6 +5,31 @@ import { GAME_CONFIG } from "../src/core/Settings";
 import { VoxelWorld } from "../src/world/VoxelWorld";
 import { VoxelType } from "../src/world/VoxelDefinitions";
 import { ProceduralStageSource, WORLD_GENERATOR_VERSION } from "../src/stages/ProceduralStageSource";
+import { createStageArray, setStageVoxel, type StageSnapshot, type StageSource } from "../src/stages/StageSource";
+
+class CollisionTestStage implements StageSource {
+  readonly id = "collision-test";
+
+  generate(): StageSnapshot {
+    const width = 8;
+    const height = 8;
+    const depth = 8;
+    const types = createStageArray(width, height, depth);
+    for (let z = 0; z < depth; z += 1) {
+      for (let x = 0; x < width; x += 1) setStageVoxel(types, width, height, depth, x, 0, z, VoxelType.Soil);
+    }
+    // 足元の隣にある1ボクセル段差。接触前は床として誤認してはいけない。
+    setStageVoxel(types, width, height, depth, 4, 1, 3, VoxelType.Rock);
+    return {
+      width,
+      height,
+      depth,
+      types,
+      spawn: { x: 3.5, y: 1, z: 3.5 },
+      goal: { x: 6.5, y: 1, z: 6.5 },
+    };
+  }
+}
 
 test("ボクセルワールドはTypedArrayと16立方体チャンクで構成される", () => {
   const world = new VoxelWorld();
@@ -59,6 +84,28 @@ test("パンチとジャンプの操作感設定は見た目に余裕を持つ",
   assert.equal(GAME_CONFIG.destruction.punchRadius >= 1.9, true);
   assert.equal(GAME_CONFIG.player.jumpVelocity > 7, true);
   assert.equal(GAME_CONFIG.enemies.knockback > 0.85, true);
+});
+
+test("接地判定は足裏と重なるセルだけを使い、隣の段差で浮かない", () => {
+  const world = new VoxelWorld(new CollisionTestStage());
+  const beforeStep = new THREE.Vector3(3.5, 1, 3.5);
+  assert.equal(world.findSupportY(beforeStep, 0.32, 1.4, 0.24), 1);
+  const touchingButNotOverlapping = new THREE.Vector3(3.67, 1, 3.5);
+  assert.equal(world.findSupportY(touchingButNotOverlapping, 0.32, 1.4, 0.24), 1);
+  world.dispose();
+});
+
+test("1ボクセル段差は上面の正確な高さへ接地し、高所では吸着せず落下する", () => {
+  const world = new VoxelWorld(new CollisionTestStage());
+  const onStep = new THREE.Vector3(4.5, 1, 3.5);
+  assert.equal(world.findSupportY(onStep, 0.32, 1.4, 0.02, 1.05), 2);
+  const exactStepCenter = new THREE.Vector3(4.5, 2 + 1.4 * 0.5, 3.5);
+  assert.equal(world.collidesAabb(exactStepCenter, 0.32, 1.4), false);
+
+  const falling = new THREE.Vector3(3.5, 4, 3.5);
+  assert.equal(world.findSupportY(falling, 0.32, 1.4, 0.24), null);
+  assert.equal(world.findSupportY(falling, 0.32, 1.4, 4), 1);
+  world.dispose();
 });
 
 test("ランダム地形は同じシードで再現され、異なるシードで変化する", () => {
