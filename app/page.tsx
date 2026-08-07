@@ -226,11 +226,7 @@ export default function Home() {
     <main className="demo-shell" onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()}>
       <div className="rotate-message" role="status">iPhoneを横向きにして遊んでください</div>
       <header className="demo-header">
-        <div>
-          <p className="eyebrow"><span /> VOXEL BREAK LAB / PHASE 18</p>
-          <h1>岩山を、壊す。</h1>
-          <p className="subtitle">敵を倒し、コインを集め、地下ゴールを目指す破壊アクション</p>
-        </div>
+        <p className="eyebrow version-label">VERSION 51</p>
         <div className="header-actions">
           <button className="fullscreen-button" type="button" onClick={() => void toggleFullscreen()}>{isFullscreen ? "縮小" : "全画面"}</button>
           <button className="reset-button" type="button" onClick={() => demoRef.current?.reset()}>↻ リセット</button>
