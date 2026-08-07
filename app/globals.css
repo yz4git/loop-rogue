@@ -49,6 +49,11 @@ h1 { margin: 0; font-size: clamp(28px, 6vw, 54px); line-height: .98; letter-spac
 .generation-overlay { position: absolute; inset: 50% auto auto 50%; z-index: 9; display: grid; gap: 7px; min-width: 230px; padding: 20px; transform: translate(-50%, -50%); border: 1px solid rgba(117, 227, 214, .5); border-radius: 15px; color: #e9ffff; background: rgba(5, 17, 28, .92); box-shadow: 0 14px 40px rgba(0, 0, 0, .4); text-align: center; }
 .generation-overlay strong { color: #75e3d6; font-size: 17px; }
 .generation-overlay span, .generation-overlay small { color: #a9c2d2; font-size: 11px; }
+.worldgen-debug { margin: 8px auto 0; max-width: 920px; color: #9db5c9; font: 10px var(--font-geist-mono); }
+.worldgen-debug summary { cursor: pointer; color: #75e3d6; letter-spacing: .12em; }
+.worldgen-grid { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 8px 2px; }
+.worldgen-grid b { color: #f2f7ff; font-weight: 600; }
+.worldgen-grid .biomes { flex-basis: 100%; }
 .virtual-joystick { position: absolute; left: 18px; bottom: 18px; display: grid; width: 104px; height: 104px; place-items: center; border: 1px solid rgba(174, 220, 238, .33); border-radius: 50%; background: radial-gradient(circle, rgba(105, 190, 212, .22), rgba(15, 34, 52, .46)); box-shadow: inset 0 0 0 8px rgba(11, 26, 42, .24), 0 8px 24px rgba(0, 0, 0, .28); touch-action: none; user-select: none; z-index: 4; }
 .joystick-knob { width: 42px; height: 42px; border: 1px solid rgba(206, 247, 255, .65); border-radius: 50%; background: rgba(105, 225, 215, .34); box-shadow: 0 0 18px rgba(105, 225, 215, .28); pointer-events: none; }
 .punch-button { position: absolute; right: 104px; bottom: 19px; z-index: 4; width: 78px; height: 78px; border: 1px solid rgba(255, 112, 104, .72); border-radius: 50%; color: #ffe0da; background: rgba(145, 48, 48, .74); box-shadow: 0 8px 22px rgba(0, 0, 0, .28), 0 0 18px rgba(255, 91, 77, .16); font-size: 10px; font-weight: 900; letter-spacing: .08em; touch-action: none; }
