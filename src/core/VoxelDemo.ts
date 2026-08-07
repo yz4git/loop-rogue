@@ -13,6 +13,7 @@ export interface DemoStats {
   destroyed: number;
   player: string;
   grounded: boolean;
+  velocityY: number;
   hp: number;
   maxHp: number;
   enemies: number;
@@ -560,7 +561,10 @@ export class VoxelDemo {
       this.velocity.x *= Math.max(0, 1 - 12 * delta);
       this.velocity.z *= Math.max(0, 1 - 12 * delta);
     }
-    this.velocity.y -= GAME_CONFIG.player.gravity * delta;
+    this.velocity.y = Math.max(
+      -GAME_CONFIG.player.maxFallSpeed,
+      this.velocity.y - GAME_CONFIG.player.gravity * delta,
+    );
     const subSteps = Math.max(1, Math.ceil(Math.max(Math.abs(this.velocity.x), Math.abs(this.velocity.y), Math.abs(this.velocity.z)) * delta / 0.18));
     const stepDelta = delta / subSteps;
     this.grounded = false;
@@ -718,7 +722,9 @@ export class VoxelDemo {
     const knockback = this.player.position.clone().sub(source);
     knockback.y = 0;
     if (knockback.lengthSq() > 0.001) this.player.position.addScaledVector(knockback.normalize(), 0.35);
-    this.snapToGround(true);
+    // Contact damage may push the player horizontally, but must never teleport
+    // an airborne player down to the floor or lift them onto a nearby ledge.
+    this.snapToGround();
     this.lastMessage = this.hp > 0 ? `被敵人にぶつかった · HP ${this.hp}/${GAME_CONFIG.player.maxHp}` : "力尽きた · リセットで再挑戦";
     if (this.hp <= 0) this.gameState = "gameover";
   }
@@ -1036,6 +1042,7 @@ export class VoxelDemo {
         destroyed: this.destroyedTotal,
         player: `${this.player.position.x.toFixed(1)}, ${this.player.position.y.toFixed(1)}, ${this.player.position.z.toFixed(1)}`,
         grounded: this.grounded,
+        velocityY: Math.round(this.velocity.y * 100) / 100,
         hp: this.hp,
         maxHp: GAME_CONFIG.player.maxHp,
         enemies: this.enemyPool.filter((enemy) => enemy.mesh.visible).length,
