@@ -4,9 +4,10 @@ import { ValueNoise2D, ValueNoise3D, ridged } from "../worldgen/Noise";
 import { checkDigReachability } from "../worldgen/Reachability";
 import { placeStructures } from "../worldgen/Structures";
 import { generateJigsawNetwork } from "../worldgen/Jigsaw";
+import { processStructures } from "../worldgen/StructureProcessors";
 import { createStageArray, setStageVoxel, type StageSnapshot, type StageSource } from "./StageSource";
 
-export const WORLD_GENERATOR_VERSION = 1;
+export const WORLD_GENERATOR_VERSION = 2;
 
 export interface RandomStageSettings {
   seed: string;
@@ -34,10 +35,16 @@ export class ProceduralStageSource implements StageSource {
   }
 
   generate(): StageSnapshot {
+    const generationStartedAt = performance.now();
+    const generationPasses: Array<{ id: string; elapsedMs: number; progress: number }> = [];
+    const passStarted = (id: string, progress: number): number => { generationPasses.push({ id, elapsedMs: 0, progress }); return performance.now(); };
+    const passFinished = (index: number, startedAt: number): void => { generationPasses[index].elapsedMs = Math.round((performance.now() - startedAt) * 10) / 10; };
+    let passIndex = 0;
     const dimensions = SIZE[this.settings.size];
     const { width, height, depth } = dimensions;
     const types = createStageArray(width, height, depth);
     const set = (x: number, y: number, z: number, type: VoxelType): void => setStageVoxel(types, width, height, depth, x, y, z, type);
+    let passAt = passStarted("terrain", 20); passIndex = generationPasses.length - 1;
     const terrain = new ValueNoise2D(hashSeed(this.settings.seed, "terrain"));
     const hills = new ValueNoise2D(hashSeed(this.settings.seed, "hills"));
     const ridge = new ValueNoise2D(hashSeed(this.settings.seed, "ridges"));
@@ -60,6 +67,8 @@ export class ProceduralStageSource implements StageSource {
         surface[x + width * z] = Math.max(7, Math.min(height - 5, heightValue));
       }
     }
+    passFinished(passIndex, passAt);
+    passAt = passStarted("layers", 40); passIndex = generationPasses.length - 1;
     const centerX = Math.floor(width / 2);
     const startZ = 5;
     const startSurface = surface[centerX + width * startZ] || 10;
@@ -78,6 +87,7 @@ export class ProceduralStageSource implements StageSource {
         }
       }
     }
+    passFinished(passIndex, passAt);
     // 初期地点は平坦な足場と見通しを確保し、ランダム地形でも開始直後に詰まらないようにする。
     for (let z = 2; z <= 8; z += 1) for (let x = centerX - 3; x <= centerX + 3; x += 1) {
       const floorY = startSurface;
@@ -89,6 +99,7 @@ export class ProceduralStageSource implements StageSource {
     for (let z = goalZ - 2; z <= goalZ + 2; z += 1) for (let x = goalX - 2; x <= goalX + 2; x += 1) {
       for (let y = Math.max(2, goalSurface - 1); y < Math.min(height - 1, goalSurface + 3); y += 1) set(x, y, z, VoxelType.Empty);
     }
+    passAt = passStarted("caves-and-carver", 62); passIndex = generationPasses.length - 1;
     // 3Dノイズ洞窟。地表近くと外周は残し、細かい穴だらけにならないよう低周波で掘る。
     let caves = 0;
     for (let z = 3; z < depth - 3; z += 1) for (let y = 3; y < height - 3; y += 1) for (let x = 3; x < width - 3; x += 1) {
@@ -101,6 +112,7 @@ export class ProceduralStageSource implements StageSource {
         caves += 1;
       }
     }
+    passFinished(passIndex, passAt);
     // スタートからゴールへ続くCarver。床を残した浅い楕円トンネルを複数点で掘る。
     let carverVoxels = 0;
     const steps = Math.max(12, depth - startZ - 7);
@@ -117,6 +129,7 @@ export class ProceduralStageSource implements StageSource {
         set(x + dx, centerY + dy, z + dz, VoxelType.Empty);
       }
     }
+    passAt = passStarted("features-and-structures", 82); passIndex = generationPasses.length - 1;
     // 自然Feature。木と巨岩は地形と同じボクセル配列へ置き、描画・破壊・衝突を共有する。
     let trees = 0;
     let boulders = 0;
@@ -156,6 +169,7 @@ export class ProceduralStageSource implements StageSource {
       coinSpawns.push({ x: x + 0.5, y: ground + 1.6, z: z + 0.5 });
     }
     const structureResult = placeStructures(types, width, height, depth, surface, { x: centerX + 0.5, y: startSurface + 1.7, z: startZ + 0.5 }, { x: goalX + 0.5, y: goalSurface + 0.9, z: goalZ + 0.5 }, new SeededRandom(hashSeed(this.settings.seed, "structures")));
+    const processedStructures = processStructures(types, width, height, depth, structureResult.reserved, new SeededRandom(hashSeed(this.settings.seed, "processors")));
     const spawn = { x: centerX + 0.5, y: startSurface + 1.7, z: startZ + 0.5 };
     const goal = { x: goalX + 0.5, y: goalSurface + 0.9, z: goalZ + 0.5 };
     const enemySpawns = [10, 17, 24, 31, 38]
@@ -166,11 +180,19 @@ export class ProceduralStageSource implements StageSource {
         return { x: x + 0.5, y: localSurface + 1.7, z: z + 0.5 };
       });
     const jigsaw = generateJigsawNetwork(types, width, height, depth, spawn, goal, new SeededRandom(hashSeed(this.settings.seed, "jigsaw")));
+    passFinished(passIndex, passAt);
+    passAt = passStarted("validation", 100); passIndex = generationPasses.length - 1;
     let reachability = checkDigReachability(types, width, height, depth, spawn, goal);
     if (!reachability.reachable) {
       // 異常なシードでも停止しない最後の補修。中央を縦に掘る。
       for (let z = startZ; z <= goalZ; z += 1) for (let y = 7; y <= 11; y += 1) set(centerX, y, z, VoxelType.Empty);
       reachability = checkDigReachability(types, width, height, depth, spawn, goal);
+    }
+    passFinished(passIndex, passAt);
+    const biomeCounts: Partial<Record<"grassland" | "forest" | "rocky-highland" | "ruins", number>> = {};
+    for (let z = 1; z < depth - 1; z += 2) for (let x = 1; x < width - 1; x += 2) {
+      const key = this.settings.theme === "forest" ? "forest" : this.settings.theme === "mountain" ? "rocky-highland" : this.settings.theme === "ruins" ? "ruins" : (surface[x + width * z] > mid + 4 ? "rocky-highland" : ((x + z) % 5 === 0 ? "forest" : "grassland"));
+      biomeCounts[key] = (biomeCounts[key] ?? 0) + 1;
     }
     return {
       width,
@@ -179,7 +201,7 @@ export class ProceduralStageSource implements StageSource {
       types,
       spawn,
       goal,
-      metadata: { generatorVersion: WORLD_GENERATOR_VERSION, seed: this.settings.seed, difficulty: this.settings.difficulty, theme: this.settings.theme, reachability, caves, carverVoxels, trees, boulders, coinSpawns, enemySpawns, landmarks: structureResult.landmarks, structures: structureResult.structures, jigsawPieces: jigsaw.pieces },
+      metadata: { generatorVersion: WORLD_GENERATOR_VERSION, seed: this.settings.seed, difficulty: this.settings.difficulty, theme: this.settings.theme, reachability, caves, carverVoxels, trees, boulders, coinSpawns: coinSpawns.concat(processedStructures.loot), enemySpawns: enemySpawns.concat(processedStructures.enemies), landmarks: structureResult.landmarks, structures: structureResult.structures, jigsawPieces: jigsaw.pieces, structureLoot: processedStructures.loot, generationMs: Math.round((performance.now() - generationStartedAt) * 10) / 10, generationPasses, biomeCounts },
     };
   }
 }
