@@ -66,7 +66,7 @@ export default function Home() {
   const [randomTheme, setRandomTheme] = useState<"mixed" | "forest" | "mountain" | "ruins">("mixed");
   const [isGenerating, setIsGenerating] = useState(false);
   const [favoriteSeeds, setFavoriteSeeds] = useState<string[]>([]);
-  const startedAtRef = useRef(Date.now());
+  const startedAtRef = useRef(0);
 
   useEffect(() => {
     const viewport = viewportRef.current;
