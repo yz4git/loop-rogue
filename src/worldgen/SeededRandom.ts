@@ -7,6 +7,13 @@ export function hashSeed(seed: string, salt = ""): number {
   return hash >>> 0;
 }
 
+export function hashCoords(seed: number, x: number, y = 0, z = 0): number {
+  let hash = (seed ^ Math.imul(x, 0x45d9f3b) ^ Math.imul(y, 0x119de1f3) ^ Math.imul(z, 0x3449a7)) >>> 0;
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+  return (hash ^ (hash >>> 16)) >>> 0;
+}
+
 export class SeededRandom {
   private state: number;
 
