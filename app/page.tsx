@@ -227,7 +227,7 @@ export default function Home() {
     <main className="demo-shell" onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()}>
       <div className="rotate-message" role="status">iPhoneを横向きにして遊んでください</div>
       <header className="demo-header">
-        <p className="eyebrow version-label">VERSION 52</p>
+        <p className="eyebrow version-label">VERSION 53</p>
         <div className="header-actions">
           <button className="fullscreen-button" type="button" onClick={() => void toggleFullscreen()}>{isFullscreen ? "縮小" : "全画面"}</button>
           <button className="reset-button" type="button" onClick={() => demoRef.current?.reset()}>↻ リセット</button>
