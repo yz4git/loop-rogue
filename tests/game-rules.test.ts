@@ -71,6 +71,10 @@ test("ランダム地形は同じシードで再現され、異なるシード�
   assert.equal(first.width, 48);
   assert.equal(first.height, 32);
   assert.equal(first.depth, 48);
+  const medium = new ProceduralStageSource({ seed: "medium-check", size: "medium" }).generate();
+  assert.equal(medium.width, 64);
+  assert.equal(medium.height, 40);
+  assert.equal(medium.depth, 64);
 });
 
 test("ランダム地形は外周を岩盤で守り、開始地点とゴールを範囲内に置く", () => {
@@ -84,4 +88,9 @@ test("ランダム地形は外周を岩盤で守り、開始地点とゴール�
   assert.equal(stage.spawn.z > 1 && stage.spawn.z < stage.depth - 1, true);
   assert.equal(stage.goal.z > stage.spawn.z, true);
   assert.equal(stage.goal.z < stage.depth - 1, true);
+  assert.equal(stage.metadata?.reachability?.reachable, true);
+  assert.equal((stage.metadata?.carverVoxels ?? 0) > 0, true);
+  assert.equal((stage.metadata?.trees ?? 0) + (stage.metadata?.boulders ?? 0) > 0, true);
+  assert.equal((stage.metadata?.coinSpawns?.length ?? 0) > 0, true);
+  assert.equal((stage.metadata?.jigsawPieces ?? 0) > 0, true);
 });
