@@ -15,6 +15,15 @@ type FullscreenRoot = HTMLElement & {
   webkitRequestFullscreen?: () => Promise<void> | void;
 };
 
+interface RandomStageRecord {
+  seed: string;
+  generatorVersion: number;
+  size: "small" | "medium";
+  difficulty: "easy" | "normal" | "hard";
+  theme: "mixed" | "forest" | "mountain" | "ruins";
+  cleared: boolean;
+}
+
 const INITIAL_STATS: DemoStats = {
   fps: 0,
   frameMs: 0,
@@ -43,7 +52,11 @@ export default function Home() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [stageMode, setStageMode] = useState<"handcrafted" | "procedural">("handcrafted");
   const [randomSeed, setRandomSeed] = useState("first-dig");
+  const [randomSize, setRandomSize] = useState<"small" | "medium">("small");
+  const [randomDifficulty, setRandomDifficulty] = useState<"easy" | "normal" | "hard">("normal");
+  const [randomTheme, setRandomTheme] = useState<"mixed" | "forest" | "mountain" | "ruins">("mixed");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [favoriteSeeds, setFavoriteSeeds] = useState<string[]>([]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -68,6 +81,24 @@ export default function Home() {
       demoRef.current = null;
       demo?.dispose();
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const last = localStorage.getItem("loop-rogue:last-random-stage");
+        if (last) {
+          const record = JSON.parse(last) as Partial<RandomStageRecord>;
+          if (typeof record.seed === "string" && record.seed) setRandomSeed(record.seed);
+          if (record.size === "small" || record.size === "medium") setRandomSize(record.size);
+          if (record.difficulty === "easy" || record.difficulty === "normal" || record.difficulty === "hard") setRandomDifficulty(record.difficulty);
+          if (record.theme === "mixed" || record.theme === "forest" || record.theme === "mountain" || record.theme === "ruins") setRandomTheme(record.theme);
+        }
+        const favorites = JSON.parse(localStorage.getItem("loop-rogue:favorite-seeds") ?? "[]") as unknown;
+        if (Array.isArray(favorites)) setFavoriteSeeds(favorites.filter((value): value is string => typeof value === "string").slice(0, 20));
+      } catch { /* Safariのプライベートモードでは端末保存を省略する。 */ }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -115,12 +146,41 @@ export default function Home() {
       return;
     }
     setIsGenerating(mode === "procedural");
+    if (mode === "procedural") {
+      const record: RandomStageRecord = { seed: randomSeed.trim() || "first-dig", generatorVersion: 1, size: randomSize, difficulty: randomDifficulty, theme: randomTheme, cleared: false };
+      try { localStorage.setItem("loop-rogue:last-random-stage", JSON.stringify(record)); } catch { /* 保存不可でもプレイは継続 */ }
+    }
     window.setTimeout(() => {
-      if (mode === "procedural") demo.switchStage(new ProceduralStageSource({ seed: randomSeed }));
+      if (mode === "procedural") demo.switchStage(new ProceduralStageSource({ seed: randomSeed, size: randomSize, difficulty: randomDifficulty, theme: randomTheme }));
       else demo.switchStage(new HandcraftedStageSource());
       setStageMode(mode);
       setIsGenerating(false);
     }, 16);
+  };
+
+  const copySeed = async () => {
+    const value = randomSeed.trim() || "first-dig";
+    try {
+      if (navigator.clipboard) await navigator.clipboard.writeText(value);
+      setStats((current) => ({ ...current, lastMessage: `シードをコピーしました · ${value}` }));
+    } catch {
+      setStats((current) => ({ ...current, lastMessage: `シード: ${value}` }));
+    }
+  };
+
+  const toggleFavoriteSeed = () => {
+    const value = randomSeed.trim() || "first-dig";
+    const next = favoriteSeeds.includes(value) ? favoriteSeeds.filter((seed) => seed !== value) : [value, ...favoriteSeeds].slice(0, 20);
+    setFavoriteSeeds(next);
+    try { localStorage.setItem("loop-rogue:favorite-seeds", JSON.stringify(next)); } catch { /* 保存不可でもプレイは継続 */ }
+  };
+
+  const shareSeed = async () => {
+    const value = randomSeed.trim() || "first-dig";
+    try {
+      if (navigator.share) await navigator.share({ title: "Loop Rogue ランダムステージ", text: `Loop Rogueのシード: ${value}` });
+      else await copySeed();
+    } catch { /* 共有シートを閉じた場合はゲーム状態を変更しない */ }
   };
 
   const stopJoystick = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -157,6 +217,12 @@ export default function Home() {
         <button className={stageMode === "handcrafted" ? "selected" : ""} type="button" onPointerDown={(event) => { event.preventDefault(); selectStage("handcrafted"); }}>通常ステージ</button>
         <button className={stageMode === "procedural" ? "selected" : ""} type="button" onPointerDown={(event) => { event.preventDefault(); selectStage("procedural"); }}>ランダムステージ</button>
         <label className="seed-input">SEED<input value={randomSeed} maxLength={32} onChange={(event) => setRandomSeed(event.target.value)} aria-label="ランダムステージのシード" /></label>
+        <label className="stage-option">SIZE<select value={randomSize} onChange={(event) => setRandomSize(event.target.value as "small" | "medium")}><option value="small">SMALL</option><option value="medium">MEDIUM</option></select></label>
+        <label className="stage-option">LEVEL<select value={randomDifficulty} onChange={(event) => setRandomDifficulty(event.target.value as "easy" | "normal" | "hard")}><option value="easy">EASY</option><option value="normal">NORMAL</option><option value="hard">HARD</option></select></label>
+        <label className="stage-option">THEME<select value={randomTheme} onChange={(event) => setRandomTheme(event.target.value as "mixed" | "forest" | "mountain" | "ruins")}><option value="mixed">MIXED</option><option value="forest">FOREST</option><option value="mountain">MOUNTAIN</option><option value="ruins">RUINS</option></select></label>
+        <button className="seed-action" type="button" onPointerDown={(event) => { event.preventDefault(); void copySeed(); }}>コピー</button>
+        <button className={`seed-action ${favoriteSeeds.includes(randomSeed.trim() || "first-dig") ? "favorite" : ""}`} type="button" onPointerDown={(event) => { event.preventDefault(); toggleFavoriteSeed(); }}>★</button>
+        <button className="seed-action" type="button" onPointerDown={(event) => { event.preventDefault(); void shareSeed(); }}>共有</button>
       </section>
 
       <section className="demo-stage" aria-label="ボクセル地形破壊デモ">
