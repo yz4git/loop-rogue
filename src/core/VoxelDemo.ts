@@ -308,9 +308,8 @@ export class VoxelDemo {
   jump(): void {
     if (this.gameState !== "playing") return;
     const now = performance.now();
-    // 接地フラグの更新とボタン入力が同じフレームになる場合に備える。
-    if (!this.grounded && Math.abs(this.velocity.y) < 0.01) this.snapToGround(true);
-    if (!this.grounded) this.grounded = this.hasGroundSupport();
+    // 入力と接地更新が同じフレームでも、足元直下だけを再確認する。
+    if (!this.grounded && this.velocity.y <= 0) this.snapToGround(false, GAME_CONFIG.player.groundProbeDistance);
     if (!this.grounded && now > this.coyoteUntil) {
       this.jumpBufferedUntil = now + 500;
       return;
@@ -322,8 +321,8 @@ export class VoxelDemo {
   }
 
   private hasGroundSupport(): boolean {
-    const groundY = this.findGroundY();
-    return groundY !== null && Math.abs(this.player.position.y - groundY) <= 0.24;
+    const groundY = this.findGroundY(this.player.position, GAME_CONFIG.player.groundProbeDistance);
+    return groundY !== null && Math.abs(this.player.position.y - groundY) <= GAME_CONFIG.player.groundProbeDistance;
   }
 
   punch(): void {
@@ -522,16 +521,18 @@ export class VoxelDemo {
     return this.world.collidesAabb(bodyCenter, GAME_CONFIG.player.radius, GAME_CONFIG.player.height);
   }
 
-  private findGroundY(): number | null {
-    const centerX = Math.floor(this.player.position.x);
-    const centerZ = Math.floor(this.player.position.z);
-    const startY = Math.min(this.world.height - 2, Math.floor(this.player.position.y + 1));
-    for (let y = startY; y >= 1; y -= 1) {
-      for (let z = centerZ - 1; z <= centerZ + 1; z += 1) for (let x = centerX - 1; x <= centerX + 1; x += 1) {
-        if (this.world.isSolidAt(x, y, z) && !this.world.isSolidAt(x, y + 1, z)) return y + 1;
-      }
-    }
-    return null;
+  private findGroundY(
+    position = this.player.position,
+    maxDrop = GAME_CONFIG.player.groundSnapDistance,
+    maxRise = 0.02,
+  ): number | null {
+    return this.world.findSupportY(
+      position,
+      GAME_CONFIG.player.radius,
+      GAME_CONFIG.player.height,
+      maxDrop,
+      maxRise,
+    );
   }
 
   private movePlayer(delta: number): void {
@@ -561,18 +562,23 @@ export class VoxelDemo {
       this.velocity.x *= Math.max(0, 1 - 12 * delta);
       this.velocity.z *= Math.max(0, 1 - 12 * delta);
     }
-    this.velocity.y = Math.max(
-      -GAME_CONFIG.player.maxFallSpeed,
-      this.velocity.y - GAME_CONFIG.player.gravity * delta,
-    );
+    if (this.grounded && this.hasGroundSupport() && this.velocity.y <= 0) {
+      this.velocity.y = 0;
+    } else {
+      this.grounded = false;
+      this.velocity.y = Math.max(
+        -GAME_CONFIG.player.maxFallSpeed,
+        this.velocity.y - GAME_CONFIG.player.gravity * delta,
+      );
+    }
     const subSteps = Math.max(1, Math.ceil(Math.max(Math.abs(this.velocity.x), Math.abs(this.velocity.y), Math.abs(this.velocity.z)) * delta / 0.18));
     const stepDelta = delta / subSteps;
-    this.grounded = false;
     for (let step = 0; step < subSteps; step += 1) {
-      this.moveHorizontal(this.velocity.x * stepDelta, this.velocity.z * stepDelta);
+      const canStep = this.grounded && this.velocity.y <= 0;
+      this.moveHorizontal(this.velocity.x * stepDelta, this.velocity.z * stepDelta, canStep);
       this.moveVertical(this.velocity.y * stepDelta);
     }
-    this.snapToGround();
+    if (this.grounded) this.snapToGround(false, GAME_CONFIG.player.groundSnapDistance);
     if (this.grounded) this.coyoteUntil = performance.now() + 100;
     if (this.jumpBufferedUntil > performance.now() && this.grounded) {
       this.velocity.y = GAME_CONFIG.player.jumpVelocity;
@@ -588,19 +594,30 @@ export class VoxelDemo {
     }
   }
 
-  private moveHorizontal(dx: number, dz: number): void {
+  private moveHorizontal(dx: number, dz: number, canStep: boolean): void {
     const tryAxis = (axis: "x" | "z", amount: number) => {
       if (Math.abs(amount) < 0.0001) return;
       const next = this.nextPosition.copy(this.player.position);
       next[axis] += amount;
       if (!this.collides(next)) {
         this.player.position.copy(next);
+        if (canStep) {
+          const supportY = this.findGroundY(this.player.position, GAME_CONFIG.player.groundSnapDistance);
+          if (supportY !== null) this.player.position.y = supportY;
+          else this.grounded = false;
+        }
         return;
       }
-      if (!this.grounded) return;
+      if (!canStep || !this.grounded) return;
       const stepped = this.steppedPosition.copy(next);
-      stepped.y += GAME_CONFIG.player.stepHeight;
-      if (!this.collides(stepped)) this.player.position.copy(stepped);
+      const supportY = this.findGroundY(stepped, 0.02, GAME_CONFIG.player.stepHeight);
+      if (supportY === null) return;
+      stepped.y = supportY;
+      if (!this.collides(stepped)) {
+        this.player.position.copy(stepped);
+        this.velocity.y = 0;
+        this.grounded = true;
+      }
     };
     tryAxis("x", dx);
     tryAxis("z", dz);
@@ -615,23 +632,26 @@ export class VoxelDemo {
       return;
     }
     if (amount < 0) {
-      const groundY = this.findGroundY();
+      const groundY = this.findGroundY(this.player.position, Math.abs(amount) + GAME_CONFIG.player.groundProbeDistance);
       if (groundY !== null) this.player.position.y = groundY;
-      this.grounded = true;
-      this.coyoteUntil = performance.now() + 100;
+      this.grounded = groundY !== null;
+      if (this.grounded) this.coyoteUntil = performance.now() + 100;
       this.velocity.y = 0;
-      if (this.groundPoundActive) this.finishGroundPound();
+      if (this.grounded && this.groundPoundActive) this.finishGroundPound();
     } else {
       this.velocity.y = 0;
     }
   }
 
-  private snapToGround(force = false): void {
+  private snapToGround(force = false, maxDrop = GAME_CONFIG.player.groundSnapDistance): void {
     if (this.groundPoundActive) return;
     if (!force && this.velocity.y > 0.01) return;
-    const groundY = this.findGroundY();
-    const snapDistance = force ? 4 : 0.28;
-    if (groundY === null || Math.abs(this.player.position.y - groundY) > snapDistance) return;
+    const snapDistance = force ? 4 : maxDrop;
+    const groundY = this.findGroundY(this.player.position, snapDistance);
+    if (groundY === null) {
+      if (!force) this.grounded = false;
+      return;
+    }
     this.player.position.y = groundY;
     this.velocity.y = 0;
     this.grounded = true;
