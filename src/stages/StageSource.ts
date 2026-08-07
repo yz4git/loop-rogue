@@ -31,6 +31,10 @@ export interface StageMetadata {
   landmarks?: number;
   enemySpawns?: StagePoint[];
   coinSpawns?: StagePoint[];
+  generationMs?: number;
+  generationPasses?: Array<{ id: string; elapsedMs: number; progress: number }>;
+  biomeCounts?: Partial<Record<"grassland" | "forest" | "rocky-highland" | "ruins", number>>;
+  structureLoot?: StagePoint[];
 }
 
 export interface StageSource {
