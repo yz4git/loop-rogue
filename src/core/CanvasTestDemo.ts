@@ -74,7 +74,7 @@ export class CanvasTestDemo {
     this.statsTime += delta;
     if (this.statsTime >= 0.25) {
       this.statsTime = 0;
-      this.onStats({ fps: delta > 0 ? Math.round(1 / delta) : 0, frameMs: Math.round(delta * 1000), drawCalls: 1, triangles: 0, chunks: 0, pendingChunks: 0, destroyed: this.destroyed, player: `${this.player.x.toFixed(1)}, 0.0, ${this.player.y.toFixed(1)}`, grounded: true, hp: GAME_CONFIG.player.maxHp, maxHp: GAME_CONFIG.player.maxHp, enemies: this.enemies.length, coins: this.coins, status: "playing", lastMessage: this.lastMessage });
+      this.onStats({ fps: delta > 0 ? Math.round(1 / delta) : 0, frameMs: Math.round(delta * 1000), drawCalls: 1, triangles: 0, chunks: 0, pendingChunks: 0, destroyed: this.destroyed, player: `${this.player.x.toFixed(1)}, 0.0, ${this.player.y.toFixed(1)}`, grounded: true, hp: GAME_CONFIG.player.maxHp, maxHp: GAME_CONFIG.player.maxHp, enemies: this.enemies.length, coins: this.coins, status: "playing", lastMessage: this.lastMessage, stageMode: "handcrafted", seed: "—", generatorVersion: 0, generationMs: 0, caves: 0, structures: 0, jigsawPieces: 0, reachabilityCost: 0, biomeCounts: "—" });
     }
     this.animationFrame = window.requestAnimationFrame(this.animate);
   };
