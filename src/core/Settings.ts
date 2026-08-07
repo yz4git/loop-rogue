@@ -39,8 +39,8 @@ export const GAME_CONFIG = {
     maxFallSpeed: 18,
     radius: 0.32,
     height: 1.4,
-    // ボクセル1段を越えられるが、段差上面へ必ず正確に接地させる。
-    stepHeight: 1.05,
+    // 1mボクセルはジャンプで越える。自動段差補正は小さな誤差だけに限定する。
+    stepHeight: 0.2,
     groundProbeDistance: 0.08,
     groundSnapDistance: 0.24,
     spawn: { x: 24.5, y: 9.7, z: 6.5 },
