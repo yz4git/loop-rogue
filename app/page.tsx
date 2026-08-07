@@ -40,6 +40,15 @@ const INITIAL_STATS: DemoStats = {
   coins: 0,
   status: "playing",
   lastMessage: "深部へ掘り、敵2体を倒してゴールへ",
+  stageMode: "handcrafted",
+  seed: "—",
+  generatorVersion: 0,
+  generationMs: 0,
+  caves: 0,
+  structures: 0,
+  jigsawPieces: 0,
+  reachabilityCost: 0,
+  biomeCounts: "—",
 };
 
 export default function Home() {
@@ -57,6 +66,7 @@ export default function Home() {
   const [randomTheme, setRandomTheme] = useState<"mixed" | "forest" | "mountain" | "ruins">("mixed");
   const [isGenerating, setIsGenerating] = useState(false);
   const [favoriteSeeds, setFavoriteSeeds] = useState<string[]>([]);
+  const startedAtRef = useRef(Date.now());
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -82,6 +92,17 @@ export default function Home() {
       demo?.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    if (stats.status !== "cleared" || stats.stageMode !== "procedural") return;
+    try {
+      const key = "loop-rogue:random-records";
+      const records = JSON.parse(localStorage.getItem(key) ?? "[]") as RandomStageRecord[];
+      const record: RandomStageRecord = { seed: stats.seed, generatorVersion: stats.generatorVersion, size: randomSize, difficulty: randomDifficulty, theme: randomTheme, cleared: true };
+      const next = [record, ...records.filter((item) => item.seed !== record.seed)].slice(0, 50);
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch { /* 保存不可でもクリア処理は継続 */ }
+  }, [stats.status, stats.stageMode, stats.seed, stats.generatorVersion, randomSize, randomDifficulty, randomTheme]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -146,10 +167,11 @@ export default function Home() {
       return;
     }
     setIsGenerating(mode === "procedural");
-    if (mode === "procedural") {
-      const record: RandomStageRecord = { seed: randomSeed.trim() || "first-dig", generatorVersion: 1, size: randomSize, difficulty: randomDifficulty, theme: randomTheme, cleared: false };
+      if (mode === "procedural") {
+      const record: RandomStageRecord = { seed: randomSeed.trim() || "first-dig", generatorVersion: 2, size: randomSize, difficulty: randomDifficulty, theme: randomTheme, cleared: false };
       try { localStorage.setItem("loop-rogue:last-random-stage", JSON.stringify(record)); } catch { /* 保存不可でもプレイは継続 */ }
-    }
+      }
+      startedAtRef.current = Date.now();
     window.setTimeout(() => {
       if (mode === "procedural") demo.switchStage(new ProceduralStageSource({ seed: randomSeed, size: randomSize, difficulty: randomDifficulty, theme: randomTheme }));
       else demo.switchStage(new HandcraftedStageSource());
@@ -192,7 +214,10 @@ export default function Home() {
 
   useEffect(() => {
     const registerServiceWorker = async () => {
-      if ("serviceWorker" in navigator) await navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+        await registration?.update().catch(() => undefined);
+      }
     };
     void registerServiceWorker();
   }, []);
@@ -202,7 +227,7 @@ export default function Home() {
       <div className="rotate-message" role="status">iPhoneを横向きにして遊んでください</div>
       <header className="demo-header">
         <div>
-          <p className="eyebrow"><span /> VOXEL BREAK LAB / PHASE 12</p>
+          <p className="eyebrow"><span /> VOXEL BREAK LAB / PHASE 18</p>
           <h1>岩山を、壊す。</h1>
           <p className="subtitle">敵を倒し、コインを集め、地下ゴールを目指す破壊アクション</p>
         </div>
@@ -265,6 +290,7 @@ export default function Home() {
         <div><span>ENEMIES</span><strong>{stats.enemies}</strong></div>
         <div><span>COINS</span><strong>{stats.coins}G</strong></div>
       </section>
+      {stats.stageMode === "procedural" && <details className="worldgen-debug"><summary>WORLDGEN DEBUG / {stats.seed}</summary><div className="worldgen-grid"><span>VERSION <b>{stats.generatorVersion}</b></span><span>GEN <b>{stats.generationMs}ms</b></span><span>CAVES <b>{stats.caves}</b></span><span>STRUCTURES <b>{stats.structures}</b></span><span>JIGSAW <b>{stats.jigsawPieces}</b></span><span>DIG COST <b>{stats.reachabilityCost}</b></span><span className="biomes">BIOMES <b>{stats.biomeCounts || "—"}</b></span></div></details>}
 
       <section className="instructions">
         <div className="instruction-icon">🕹</div>
@@ -272,7 +298,7 @@ export default function Home() {
         <div className="destroyed-count"><span>DESTROYED</span><strong>{stats.destroyed}</strong></div>
       </section>
 
-      <footer className="demo-footer"><span>PHASE 12 · BLAST CHAIN</span><span>POOLING / CHUNK MESH</span></footer>
+      <footer className="demo-footer"><span>PHASE 18 · RANDOM WORLD LAB</span><span>POOLING / CHUNK MESH</span></footer>
     </main>
   );
 }
