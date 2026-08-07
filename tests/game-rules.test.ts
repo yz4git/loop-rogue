@@ -62,7 +62,7 @@ test("パンチとジャンプの操作感設定は見た目に余裕を持つ",
 });
 
 test("ランダム地形は同じシードで再現され、異なるシードで変化する", () => {
-  assert.equal(WORLD_GENERATOR_VERSION, 1);
+  assert.equal(WORLD_GENERATOR_VERSION, 2);
   const first = new ProceduralStageSource({ seed: "mountain-check" }).generate();
   const same = new ProceduralStageSource({ seed: "mountain-check" }).generate();
   const different = new ProceduralStageSource({ seed: "cave-check" }).generate();
