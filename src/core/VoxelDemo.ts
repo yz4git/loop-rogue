@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GAME_CONFIG } from "./Settings";
 import { VoxelWorld } from "../world/VoxelWorld";
 import type { StageSource } from "../stages/StageSource";
+import { VoxelPlayerCollision } from "../player/VoxelPlayerCollision";
 
 export interface DemoStats {
   fps: number;
@@ -75,7 +76,6 @@ export class VoxelDemo {
   private readonly velocity = new THREE.Vector3();
   private readonly desiredMove = new THREE.Vector3();
   private readonly nextPosition = new THREE.Vector3();
-  private readonly steppedPosition = new THREE.Vector3();
   private readonly enemyDirection = new THREE.Vector3();
   private readonly enemyAlternate = new THREE.Vector3();
   private readonly target = new THREE.Vector3();
@@ -131,6 +131,7 @@ export class VoxelDemo {
   private cameraManuallyControlled = false;
   private movementInputActive = false;
   private behindCameraTransition = 0;
+  private playerCollision: VoxelPlayerCollision;
 
   constructor(mount: HTMLElement, onStats: (stats: DemoStats) => void, source?: StageSource) {
     this.mount = mount;
@@ -149,6 +150,7 @@ export class VoxelDemo {
     sun.position.set(-12, 25, 24);
     this.scene.add(sun);
     this.world = new VoxelWorld(source);
+    this.playerCollision = this.createPlayerCollision();
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
 
@@ -173,6 +175,7 @@ export class VoxelDemo {
     this.player.add(this.leftArm, this.rightArm, this.leftHand, this.rightHand);
     this.player.position.set(this.world.spawnPoint.x, this.world.spawnPoint.y, this.world.spawnPoint.z);
     this.scene.add(this.player);
+    this.snapToGround(true);
     this.impactRing = new THREE.Mesh(
       new THREE.RingGeometry(0.12, 0.2, 18),
       new THREE.MeshBasicMaterial({ color: 0xffc36b, transparent: true, opacity: 0, side: THREE.DoubleSide }),
@@ -217,6 +220,17 @@ export class VoxelDemo {
       this.scene.fog.near = Math.max(GAME_CONFIG.rendering.fogNear, this.world.depth * 0.38);
       this.scene.fog.far = Math.max(GAME_CONFIG.rendering.fogFar, this.world.depth * 1.18);
     }
+  }
+
+  private createPlayerCollision(): VoxelPlayerCollision {
+    return new VoxelPlayerCollision(
+      this.world,
+      GAME_CONFIG.player.radius,
+      GAME_CONFIG.player.height,
+      GAME_CONFIG.player.stepHeight,
+      GAME_CONFIG.player.groundSnapDistance,
+      GAME_CONFIG.player.groundProbeDistance,
+    );
   }
 
   private readonly handleContextLost = (event: Event) => {
@@ -321,8 +335,7 @@ export class VoxelDemo {
   }
 
   private hasGroundSupport(): boolean {
-    const groundY = this.findGroundY(this.player.position, GAME_CONFIG.player.groundProbeDistance);
-    return groundY !== null && Math.abs(this.player.position.y - groundY) <= GAME_CONFIG.player.groundProbeDistance;
+    return this.playerCollision.hasGroundSupport(this.player.position);
   }
 
   punch(): void {
@@ -514,27 +527,6 @@ export class VoxelDemo {
     }
   };
 
-  private collides(position: THREE.Vector3): boolean {
-    // player.position は足元。衝突判定は見た目のカプセル中心で行う。
-    const bodyCenter = this.nextPosition.copy(position);
-    bodyCenter.y += GAME_CONFIG.player.height * 0.5;
-    return this.world.collidesAabb(bodyCenter, GAME_CONFIG.player.radius, GAME_CONFIG.player.height);
-  }
-
-  private findGroundY(
-    position = this.player.position,
-    maxDrop = GAME_CONFIG.player.groundSnapDistance,
-    maxRise = 0.02,
-  ): number | null {
-    return this.world.findSupportY(
-      position,
-      GAME_CONFIG.player.radius,
-      GAME_CONFIG.player.height,
-      maxDrop,
-      maxRise,
-    );
-  }
-
   private movePlayer(delta: number): void {
     this.readKeyboardInput();
     const inputLength = this.moveInput.length();
@@ -574,9 +566,20 @@ export class VoxelDemo {
     const subSteps = Math.max(1, Math.ceil(Math.max(Math.abs(this.velocity.x), Math.abs(this.velocity.y), Math.abs(this.velocity.z)) * delta / 0.18));
     const stepDelta = delta / subSteps;
     for (let step = 0; step < subSteps; step += 1) {
-      const canStep = this.grounded && this.velocity.y <= 0;
-      this.moveHorizontal(this.velocity.x * stepDelta, this.velocity.z * stepDelta, canStep);
-      this.moveVertical(this.velocity.y * stepDelta);
+      this.grounded = this.playerCollision.moveHorizontal(
+        this.player.position,
+        this.velocity.x * stepDelta,
+        this.velocity.z * stepDelta,
+        this.grounded && this.velocity.y <= 0,
+      );
+      const vertical = this.playerCollision.moveVertical(this.player.position, this.velocity.y * stepDelta);
+      if (vertical.hitCeiling) this.velocity.y = 0;
+      if (vertical.landed) {
+        this.grounded = true;
+        this.velocity.y = 0;
+        this.coyoteUntil = performance.now() + 100;
+        if (this.groundPoundActive) this.finishGroundPound();
+      }
     }
     if (this.grounded) this.snapToGround(false, GAME_CONFIG.player.groundSnapDistance);
     if (this.grounded) this.coyoteUntil = performance.now() + 100;
@@ -594,65 +597,14 @@ export class VoxelDemo {
     }
   }
 
-  private moveHorizontal(dx: number, dz: number, canStep: boolean): void {
-    const tryAxis = (axis: "x" | "z", amount: number) => {
-      if (Math.abs(amount) < 0.0001) return;
-      const next = this.nextPosition.copy(this.player.position);
-      next[axis] += amount;
-      if (!this.collides(next)) {
-        this.player.position.copy(next);
-        if (canStep) {
-          const supportY = this.findGroundY(this.player.position, GAME_CONFIG.player.groundSnapDistance);
-          if (supportY !== null) this.player.position.y = supportY;
-          else this.grounded = false;
-        }
-        return;
-      }
-      if (!canStep || !this.grounded) return;
-      const stepped = this.steppedPosition.copy(next);
-      const supportY = this.findGroundY(stepped, 0.02, GAME_CONFIG.player.stepHeight);
-      if (supportY === null) return;
-      stepped.y = supportY;
-      if (!this.collides(stepped)) {
-        this.player.position.copy(stepped);
-        this.velocity.y = 0;
-        this.grounded = true;
-      }
-    };
-    tryAxis("x", dx);
-    tryAxis("z", dz);
-  }
-
-  private moveVertical(amount: number): void {
-    if (Math.abs(amount) < 0.0001) return;
-    const next = this.nextPosition.copy(this.player.position);
-    next.y += amount;
-    if (!this.collides(next)) {
-      this.player.position.copy(next);
-      return;
-    }
-    if (amount < 0) {
-      const groundY = this.findGroundY(this.player.position, Math.abs(amount) + GAME_CONFIG.player.groundProbeDistance);
-      if (groundY !== null) this.player.position.y = groundY;
-      this.grounded = groundY !== null;
-      if (this.grounded) this.coyoteUntil = performance.now() + 100;
-      this.velocity.y = 0;
-      if (this.grounded && this.groundPoundActive) this.finishGroundPound();
-    } else {
-      this.velocity.y = 0;
-    }
-  }
-
   private snapToGround(force = false, maxDrop = GAME_CONFIG.player.groundSnapDistance): void {
     if (this.groundPoundActive) return;
     if (!force && this.velocity.y > 0.01) return;
     const snapDistance = force ? 4 : maxDrop;
-    const groundY = this.findGroundY(this.player.position, snapDistance);
-    if (groundY === null) {
+    if (!this.playerCollision.snapToGround(this.player.position, snapDistance)) {
       if (!force) this.grounded = false;
       return;
     }
-    this.player.position.y = groundY;
     this.velocity.y = 0;
     this.grounded = true;
     this.coyoteUntil = performance.now() + 100;
@@ -1016,6 +968,7 @@ export class VoxelDemo {
     this.scene.remove(this.world.group);
     this.world.dispose();
     this.world = new VoxelWorld(source);
+    this.playerCollision = this.createPlayerCollision();
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
     this.reset();
