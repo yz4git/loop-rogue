@@ -138,6 +138,7 @@ export class VoxelDemo {
     this.scene.add(sun);
     this.world = new VoxelWorld(source);
     this.scene.add(this.world.group);
+    this.updateWorldRenderingDistance();
 
     const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0xf0a35b });
     this.playerBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.72, 4, 8), bodyMaterial);
@@ -199,6 +200,13 @@ export class VoxelDemo {
     this.renderer.setSize(width, height, false);
   };
 
+  private updateWorldRenderingDistance(): void {
+    if (this.scene.fog instanceof THREE.Fog) {
+      this.scene.fog.near = Math.max(GAME_CONFIG.rendering.fogNear, this.world.depth * 0.38);
+      this.scene.fog.far = Math.max(GAME_CONFIG.rendering.fogFar, this.world.depth * 1.18);
+    }
+  }
+
   private readonly handleContextLost = (event: Event) => {
     event.preventDefault();
     this.lastMessage = "描画を一時停止 · 復帰を待っています";
@@ -233,10 +241,11 @@ export class VoxelDemo {
 
   private createGameplayPools(): void {
     const spawnPoints = this.getEnemySpawnPoints();
+    const activeCount = this.getEnemyActiveCount();
     for (let index = 0; index < GAME_CONFIG.enemies.maxActive; index += 1) {
       const mesh = new THREE.Mesh(this.enemyGeometry, this.enemyMaterial);
       mesh.position.copy(spawnPoints[index] ?? spawnPoints[0]);
-      mesh.visible = true;
+      mesh.visible = index < activeCount;
       this.scene.add(mesh);
       this.enemyPool.push({ mesh, hp: GAME_CONFIG.enemies.hp, hitCooldown: 0, phase: index * 1.7, type: index % 2 === 0 ? "chaser" : "zigzag" });
     }
@@ -246,7 +255,7 @@ export class VoxelDemo {
       this.scene.add(mesh);
       this.coinPool.push({ mesh, active: false });
     }
-    this.rewardCoinPoints.forEach((point, index) => {
+    this.getRewardCoinPoints().forEach((point, index) => {
       const coin = this.coinPool[index];
       if (!coin) return;
       coin.active = true;
@@ -256,6 +265,8 @@ export class VoxelDemo {
   }
 
   private getEnemySpawnPoints(): THREE.Vector3[] {
+    const generated = this.world.metadata?.enemySpawns;
+    if (generated && generated.length > 0) return generated.map((point) => new THREE.Vector3(point.x, point.y, point.z));
     const spawn = this.world.spawnPoint;
     const maxZ = this.world.depth - 3.5;
     return [
@@ -264,6 +275,18 @@ export class VoxelDemo {
       new THREE.Vector3(spawn.x - 1, spawn.y, Math.min(maxZ, spawn.z + 18)),
       new THREE.Vector3(spawn.x + 1, spawn.y, Math.min(maxZ, spawn.z + 24)),
     ];
+  }
+
+  private getEnemyActiveCount(): number {
+    if (this.world.metadata?.difficulty === "easy") return Math.min(2, GAME_CONFIG.enemies.maxActive);
+    return GAME_CONFIG.enemies.maxActive;
+  }
+
+  private getRewardCoinPoints(): THREE.Vector3[] {
+    const generated = this.world.metadata?.coinSpawns;
+    return generated && generated.length > 0
+      ? generated.map((point) => new THREE.Vector3(point.x, point.y, point.z))
+      : this.rewardCoinPoints.map((point) => point.clone());
   }
 
   setMoveInput(x: number, y: number): void {
@@ -904,12 +927,12 @@ export class VoxelDemo {
     const spawnPoints = this.getEnemySpawnPoints();
     this.enemyPool.forEach((enemy, index) => {
       enemy.mesh.position.copy(spawnPoints[index] ?? spawnPoints[0]);
-      enemy.mesh.visible = true;
+      enemy.mesh.visible = index < this.getEnemyActiveCount();
       enemy.hp = GAME_CONFIG.enemies.hp;
       enemy.hitCooldown = 0;
     });
     this.coinPool.forEach((coin) => { coin.active = false; coin.mesh.visible = false; });
-    this.rewardCoinPoints.forEach((point, index) => {
+    this.getRewardCoinPoints().forEach((point, index) => {
       const coin = this.coinPool[index];
       if (!coin) return;
       coin.active = true;
@@ -924,8 +947,15 @@ export class VoxelDemo {
     this.world.dispose();
     this.world = new VoxelWorld(source);
     this.scene.add(this.world.group);
+    this.updateWorldRenderingDistance();
     this.reset();
-    this.lastMessage = source.id === "procedural" ? "ランダム地形を生成 · 深部のゴールを目指そう" : "通常ステージを開始";
+    if (source.id === "procedural") {
+      const metadata = this.world.metadata;
+      const seed = metadata?.seed ?? "unknown";
+      const caveCount = metadata?.caves ?? 0;
+      const structureCount = metadata?.structures ?? 0;
+      this.lastMessage = `生成完了 · ${seed} · 洞窟${caveCount} · 構造物${structureCount} · 深部のゴールを目指そう`;
+    } else this.lastMessage = "通常ステージを開始";
   }
 
   private animate = () => {
