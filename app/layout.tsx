@@ -13,8 +13,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Loop Rogue — 自分が進み、世界が流れる",
-  description: "主人公をスワイプで動かし、その行と列を流して戦う7×7ターン型アクションRPG。",
+  title: "Voxel Break Lab — 岩山を、壊す。",
+  description: "iPhone Safari向けthree.jsボクセル地形破壊技術デモ。",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "Voxel Break",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: { telephone: false },
   other: {
     "codex-preview": "development",
   },
