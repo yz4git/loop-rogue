@@ -23,6 +23,7 @@ button { font: inherit; }
 .demo-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
 .header-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .eyebrow { margin: 0 0 8px; color: #54e0d0; font-size: 10px; font-weight: 800; letter-spacing: .22em; }
+.version-label { margin: 0; opacity: .58; font-size: 9px; letter-spacing: .14em; }
 .eyebrow span { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: #ffb55a; box-shadow: 0 0 12px #ffb55a; }
 h1 { margin: 0; font-size: clamp(28px, 6vw, 54px); line-height: .98; letter-spacing: -.055em; }
 .subtitle { margin: 10px 0 0; color: #9aacc5; font-size: 13px; }
