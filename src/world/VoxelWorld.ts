@@ -47,6 +47,7 @@ export class VoxelWorld {
   private readonly chunks = new Map<string, Chunk>();
   private readonly rebuildQueue: Chunk[] = [];
   private readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  private readonly collisionProbe = new THREE.Vector3();
 
   constructor(source: StageSource = new HandcraftedStageSource()) {
     this.source = source;
@@ -82,12 +83,14 @@ export class VoxelWorld {
   }
 
   collidesAabb(center: THREE.Vector3, halfWidth: number, bodyHeight: number): boolean {
-    const minX = Math.floor(center.x - halfWidth);
-    const maxX = Math.floor(center.x + halfWidth);
-    const minY = Math.floor(center.y - bodyHeight * 0.5);
-    const maxY = Math.floor(center.y + bodyHeight * 0.5);
-    const minZ = Math.floor(center.z - halfWidth);
-    const maxZ = Math.floor(center.z + halfWidth);
+    // 面に触れているだけの隣接セルを衝突扱いしない。
+    const epsilon = 0.0001;
+    const minX = Math.floor(center.x - halfWidth + epsilon);
+    const maxX = Math.floor(center.x + halfWidth - epsilon);
+    const minY = Math.floor(center.y - bodyHeight * 0.5 + epsilon);
+    const maxY = Math.floor(center.y + bodyHeight * 0.5 - epsilon);
+    const minZ = Math.floor(center.z - halfWidth + epsilon);
+    const maxZ = Math.floor(center.z + halfWidth - epsilon);
     for (let z = minZ; z <= maxZ; z += 1) {
       for (let y = minY; y <= maxY; y += 1) {
         for (let x = minX; x <= maxX; x += 1) {
@@ -96,6 +99,43 @@ export class VoxelWorld {
       }
     }
     return false;
+  }
+
+  /** 足裏が実際に重なるセルだけを調べ、立てる最も高い上面を返す。 */
+  findSupportY(
+    footPosition: THREE.Vector3,
+    halfWidth: number,
+    bodyHeight: number,
+    maxDrop: number,
+    maxRise = 0.02,
+  ): number | null {
+    const epsilon = 0.0001;
+    const minX = Math.floor(footPosition.x - halfWidth + epsilon);
+    const maxX = Math.floor(footPosition.x + halfWidth - epsilon);
+    const minZ = Math.floor(footPosition.z - halfWidth + epsilon);
+    const maxZ = Math.floor(footPosition.z + halfWidth - epsilon);
+    const highestSurface = footPosition.y + maxRise;
+    const lowestSurface = footPosition.y - maxDrop;
+    const highestVoxelY = Math.min(this.height - 1, Math.floor(highestSurface - epsilon));
+    const lowestVoxelY = Math.max(0, Math.floor(lowestSurface - 1));
+
+    for (let y = highestVoxelY; y >= lowestVoxelY; y -= 1) {
+      const surfaceY = y + 1;
+      if (surfaceY > highestSurface + epsilon || surfaceY < lowestSurface - epsilon) continue;
+      let hasFloor = false;
+      for (let z = minZ; z <= maxZ && !hasFloor; z += 1) {
+        for (let x = minX; x <= maxX; x += 1) {
+          if (this.isSolidAt(x, y, z)) {
+            hasFloor = true;
+            break;
+          }
+        }
+      }
+      if (!hasFloor) continue;
+      this.collisionProbe.set(footPosition.x, surfaceY + bodyHeight * 0.5, footPosition.z);
+      if (!this.collidesAabb(this.collisionProbe, halfWidth, bodyHeight)) return surfaceY;
+    }
+    return null;
   }
 
   private rebuildHealth(): void {
