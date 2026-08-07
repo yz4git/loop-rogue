@@ -34,6 +34,7 @@ const INITIAL_STATS: DemoStats = {
   destroyed: 0,
   player: "24.5, 9.7, 6.5",
   grounded: false,
+  velocityY: 0,
   hp: 500,
   maxHp: 500,
   enemies: 4,
@@ -226,7 +227,7 @@ export default function Home() {
     <main className="demo-shell" onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()}>
       <div className="rotate-message" role="status">iPhoneを横向きにして遊んでください</div>
       <header className="demo-header">
-        <p className="eyebrow version-label">VERSION 51</p>
+        <p className="eyebrow version-label">VERSION 52</p>
         <div className="header-actions">
           <button className="fullscreen-button" type="button" onClick={() => void toggleFullscreen()}>{isFullscreen ? "縮小" : "全画面"}</button>
           <button className="reset-button" type="button" onClick={() => demoRef.current?.reset()}>↻ リセット</button>
@@ -282,6 +283,7 @@ export default function Home() {
         <div><span>CHUNKS</span><strong>{stats.chunks}</strong></div>
         <div><span>QUEUE</span><strong>{stats.pendingChunks}</strong></div>
         <div><span>PLAYER</span><strong>{stats.player}</strong></div>
+        <div><span>VERTICAL</span><strong>{stats.velocityY.toFixed(2)} / {stats.grounded ? "GROUND" : "AIR"}</strong></div>
         <div><span>HP</span><strong className={stats.hp <= 1 ? "danger" : "good"}>{stats.hp}/{stats.maxHp}</strong></div>
         <div><span>ENEMIES</span><strong>{stats.enemies}</strong></div>
         <div><span>COINS</span><strong>{stats.coins}G</strong></div>
