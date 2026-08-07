@@ -36,6 +36,10 @@ h1 { margin: 0; font-size: clamp(28px, 6vw, 54px); line-height: .98; letter-spac
 .stage-selector button.selected { border-color: rgba(117, 227, 214, .7); color: #bff8ed; background: rgba(17, 82, 82, .72); }
 .seed-input { display: flex; align-items: center; gap: 6px; margin-left: auto; color: #6f8ba7; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
 .seed-input input { width: 128px; padding: 7px 8px; border: 1px solid rgba(142, 200, 230, .25); border-radius: 7px; outline: none; color: #e4f2ff; background: rgba(4, 14, 25, .82); font-size: 11px; user-select: text; -webkit-user-select: text; }
+.stage-option { display: flex; align-items: center; gap: 4px; color: #6f8ba7; font-size: 9px; font-weight: 900; letter-spacing: .1em; }
+.stage-option select { padding: 6px 5px; border: 1px solid rgba(142, 200, 230, .25); border-radius: 7px; color: #d9efff; background: rgba(4, 14, 25, .82); font-size: 10px; }
+.seed-action { padding: 6px 7px; border: 1px solid rgba(142, 200, 230, .25); border-radius: 7px; color: #b9d3e6; background: rgba(24, 48, 68, .72); font-size: 10px; touch-action: none; }
+.seed-action.favorite { border-color: rgba(255, 203, 93, .68); color: #ffd36e; }
 
 .demo-stage { position: relative; width: min(1080px, 100%); height: min(66vh, 620px); min-height: 340px; margin-inline: auto; overflow: hidden; border: 1px solid rgba(113, 189, 219, .35); border-radius: 22px; background: #091322; box-shadow: 0 25px 80px rgba(0, 0, 0, .34), inset 0 0 0 5px rgba(4, 9, 17, .4); }
 .canvas-wrap { position: absolute; inset: 0; touch-action: none; -webkit-user-select: none; user-select: none; }
@@ -92,6 +96,7 @@ h1 { margin: 0; font-size: clamp(28px, 6vw, 54px); line-height: .98; letter-spac
   .stage-selector { flex-wrap: wrap; }
   .selector-label { width: 100%; }
   .seed-input { margin-left: 0; }
+  .stage-option { margin-left: 0; }
   .demo-stage { height: 54vh; min-height: 300px; }
   .metrics { grid-template-columns: repeat(3, 1fr); }
   .instructions { align-items: flex-start; }
@@ -116,6 +121,8 @@ h1 { margin: 0; font-size: clamp(28px, 6vw, 54px); line-height: .98; letter-spac
   .stage-selector button { padding: 5px 8px; font-size: 10px; }
   .selector-label { margin-inline: 3px; font-size: 8px; }
   .seed-input input { width: 105px; padding: 5px 6px; font-size: 10px; }
+  .stage-option select { padding: 4px 3px; font-size: 9px; }
+  .seed-action { padding: 4px 5px; font-size: 9px; }
   .eyebrow { display: none; }
   h1 { font-size: clamp(18px, 4.5vw, 28px); }
   .header-actions { gap: 4px; }
