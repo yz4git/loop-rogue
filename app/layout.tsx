@@ -13,12 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Voxel Break Lab — 岩山を、壊す。",
+  title: "Loop Rogue — 岩山を、壊す。",
   description: "iPhone Safari向けthree.jsボクセル地形破壊技術デモ。",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    title: "Voxel Break",
+    title: "Loop Rogue",
     statusBarStyle: "black-translucent",
   },
   formatDetection: { telephone: false },
