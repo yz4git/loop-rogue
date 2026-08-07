@@ -1,0 +1,10 @@
+{
+  "name": "Voxel Break Lab",
+  "short_name": "Voxel Break",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#070d17",
+  "theme_color": "#070d17",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
