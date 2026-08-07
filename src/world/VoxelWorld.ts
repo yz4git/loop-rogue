@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GAME_CONFIG } from "../core/Settings";
 import { VOXEL_DEFINITIONS, VoxelType } from "./VoxelDefinitions";
 import { HandcraftedStageSource } from "../stages/HandcraftedStageSource";
-import type { StagePoint, StageSource } from "../stages/StageSource";
+import type { StageMetadata, StagePoint, StageSource } from "../stages/StageSource";
 
 type Chunk = {
   key: string;
@@ -40,6 +40,7 @@ export class VoxelWorld {
   readonly chunkSize = GAME_CONFIG.world.chunkSize;
   readonly spawnPoint: StagePoint;
   readonly goalPoint: StagePoint;
+  readonly metadata?: StageMetadata;
   private readonly source: StageSource;
   private types: Uint8Array;
   private health: Uint8Array;
@@ -58,6 +59,7 @@ export class VoxelWorld {
     this.health = new Uint8Array(this.types.length);
     this.spawnPoint = { ...snapshot.spawn };
     this.goalPoint = { ...snapshot.goal };
+    this.metadata = snapshot.metadata;
     this.rebuildHealth();
     this.createChunks();
     for (const chunk of this.chunks.values()) this.enqueue(chunk);
