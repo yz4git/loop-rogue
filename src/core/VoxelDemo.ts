@@ -308,9 +308,10 @@ export class VoxelDemo {
     if (this.gameState !== "playing") return;
     const now = performance.now();
     // 接地フラグの更新とボタン入力が同じフレームになる場合に備える。
+    if (!this.grounded && Math.abs(this.velocity.y) < 0.01) this.snapToGround(true);
     if (!this.grounded) this.grounded = this.hasGroundSupport();
     if (!this.grounded && now > this.coyoteUntil) {
-      this.jumpBufferedUntil = now + 180;
+      this.jumpBufferedUntil = now + 500;
       return;
     }
     this.velocity.y = GAME_CONFIG.player.jumpVelocity;
@@ -320,18 +321,8 @@ export class VoxelDemo {
   }
 
   private hasGroundSupport(): boolean {
-    const footY = this.player.position.y - GAME_CONFIG.player.height * 0.5;
-    const baseY = Math.floor(footY) - 1;
-    const centerX = Math.floor(this.player.position.x);
-    const centerZ = Math.floor(this.player.position.z);
-    for (let y = baseY; y >= Math.max(1, baseY - 2); y -= 1) {
-      for (let z = centerZ - 1; z <= centerZ + 1; z += 1) for (let x = centerX - 1; x <= centerX + 1; x += 1) {
-        if (!this.world.isSolidAt(x, y, z)) continue;
-        const above = this.world.isSolidAt(x, y + 1, z);
-        if (!above && footY - (y + 1) <= 0.24) return true;
-      }
-    }
-    return false;
+    const groundY = this.findGroundY();
+    return groundY !== null && Math.abs(this.player.position.y - groundY) <= 0.24;
   }
 
   punch(): void {
@@ -524,7 +515,22 @@ export class VoxelDemo {
   };
 
   private collides(position: THREE.Vector3): boolean {
-    return this.world.collidesAabb(position, GAME_CONFIG.player.radius, GAME_CONFIG.player.height);
+    // player.position は足元。衝突判定は見た目のカプセル中心で行う。
+    const bodyCenter = this.nextPosition.copy(position);
+    bodyCenter.y += GAME_CONFIG.player.height * 0.5;
+    return this.world.collidesAabb(bodyCenter, GAME_CONFIG.player.radius, GAME_CONFIG.player.height);
+  }
+
+  private findGroundY(): number | null {
+    const centerX = Math.floor(this.player.position.x);
+    const centerZ = Math.floor(this.player.position.z);
+    const startY = Math.min(this.world.height - 2, Math.floor(this.player.position.y + 1));
+    for (let y = startY; y >= 1; y -= 1) {
+      for (let z = centerZ - 1; z <= centerZ + 1; z += 1) for (let x = centerX - 1; x <= centerX + 1; x += 1) {
+        if (this.world.isSolidAt(x, y, z) && !this.world.isSolidAt(x, y + 1, z)) return y + 1;
+      }
+    }
+    return null;
   }
 
   private movePlayer(delta: number): void {
@@ -605,14 +611,8 @@ export class VoxelDemo {
       return;
     }
     if (amount < 0) {
-      const landing = this.nextPosition.copy(this.player.position);
-      for (let i = 0; i < 48; i += 1) {
-        landing.y -= 0.025;
-        if (this.collides(landing)) {
-          this.player.position.y = landing.y + 0.03;
-          break;
-        }
-      }
+      const groundY = this.findGroundY();
+      if (groundY !== null) this.player.position.y = groundY;
       this.grounded = true;
       this.coyoteUntil = performance.now() + 100;
       this.velocity.y = 0;
@@ -622,19 +622,16 @@ export class VoxelDemo {
     }
   }
 
-  private snapToGround(): void {
+  private snapToGround(force = false): void {
     if (this.groundPoundActive) return;
-    const probe = this.nextPosition.copy(this.player.position);
-    for (let i = 0; i < 48; i += 1) {
-      probe.y -= 0.025;
-      if (this.collides(probe)) {
-        this.player.position.y = probe.y + 0.03;
-        this.velocity.y = 0;
-        this.grounded = true;
-        this.coyoteUntil = performance.now() + 100;
-        return;
-      }
-    }
+    if (!force && this.velocity.y > 0.01) return;
+    const groundY = this.findGroundY();
+    const snapDistance = force ? 4 : 0.28;
+    if (groundY === null || Math.abs(this.player.position.y - groundY) > snapDistance) return;
+    this.player.position.y = groundY;
+    this.velocity.y = 0;
+    this.grounded = true;
+    this.coyoteUntil = performance.now() + 100;
   }
 
   private finishGroundPound(): void {
@@ -671,6 +668,7 @@ export class VoxelDemo {
     this.player.position.set(GAME_CONFIG.player.spawn.x, GAME_CONFIG.player.spawn.y, GAME_CONFIG.player.spawn.z);
     this.velocity.set(0, 0, 0);
     this.grounded = false;
+    this.snapToGround(true);
     this.lastMessage = "落下したため入口へ戻りました";
   }
 
@@ -708,7 +706,7 @@ export class VoxelDemo {
         if (!this.world.collidesAabb(alternate, 0.32, 0.8)) enemy.mesh.position.copy(alternate);
       }
       enemy.mesh.rotation.y += delta * 2.2;
-      enemy.mesh.position.y = this.player.position.y + Math.sin(performance.now() * 0.004 + enemy.phase) * 0.08;
+      // 敵はプレイヤーのY座標を参照しない。接触でプレイヤーを持ち上げない。
     }
   }
 
@@ -720,7 +718,7 @@ export class VoxelDemo {
     const knockback = this.player.position.clone().sub(source);
     knockback.y = 0;
     if (knockback.lengthSq() > 0.001) this.player.position.addScaledVector(knockback.normalize(), 0.35);
-    this.snapToGround();
+    this.snapToGround(true);
     this.lastMessage = this.hp > 0 ? `被敵人にぶつかった · HP ${this.hp}/${GAME_CONFIG.player.maxHp}` : "力尽きた · リセットで再挑戦";
     if (this.hp <= 0) this.gameState = "gameover";
   }
@@ -969,7 +967,7 @@ export class VoxelDemo {
     this.hp = GAME_CONFIG.player.maxHp;
     this.coins = 0;
     this.gameState = "playing";
-    this.snapToGround();
+    this.snapToGround(true);
     const spawnPoints = this.getEnemySpawnPoints();
     this.enemyPool.forEach((enemy, index) => {
       enemy.mesh.position.copy(spawnPoints[index] ?? spawnPoints[0]);
