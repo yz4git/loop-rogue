@@ -119,6 +119,8 @@ export class VoxelDemo {
   private punchUntil = 0;
   private groundPoundReadyAt = 0;
   private groundPoundActive = false;
+  private jumpBufferedUntil = 0;
+  private coyoteUntil = 0;
   private shakeUntil = 0;
   private shakeStrength = 0;
   private impactStartedAt = 0;
@@ -303,10 +305,33 @@ export class VoxelDemo {
   }
 
   jump(): void {
-    if (!this.grounded) return;
+    if (this.gameState !== "playing") return;
+    const now = performance.now();
+    // 接地フラグの更新とボタン入力が同じフレームになる場合に備える。
+    if (!this.grounded) this.grounded = this.hasGroundSupport();
+    if (!this.grounded && now > this.coyoteUntil) {
+      this.jumpBufferedUntil = now + 180;
+      return;
+    }
     this.velocity.y = GAME_CONFIG.player.jumpVelocity;
     this.grounded = false;
+    this.jumpBufferedUntil = 0;
     this.lastMessage = "ジャンプ";
+  }
+
+  private hasGroundSupport(): boolean {
+    const footY = this.player.position.y - GAME_CONFIG.player.height * 0.5;
+    const baseY = Math.floor(footY) - 1;
+    const centerX = Math.floor(this.player.position.x);
+    const centerZ = Math.floor(this.player.position.z);
+    for (let y = baseY; y >= Math.max(1, baseY - 2); y -= 1) {
+      for (let z = centerZ - 1; z <= centerZ + 1; z += 1) for (let x = centerX - 1; x <= centerX + 1; x += 1) {
+        if (!this.world.isSolidAt(x, y, z)) continue;
+        const above = this.world.isSolidAt(x, y + 1, z);
+        if (!above && footY - (y + 1) <= 0.24) return true;
+      }
+    }
+    return false;
   }
 
   punch(): void {
@@ -538,6 +563,13 @@ export class VoxelDemo {
       this.moveVertical(this.velocity.y * stepDelta);
     }
     this.snapToGround();
+    if (this.grounded) this.coyoteUntil = performance.now() + 100;
+    if (this.jumpBufferedUntil > performance.now() && this.grounded) {
+      this.velocity.y = GAME_CONFIG.player.jumpVelocity;
+      this.grounded = false;
+      this.jumpBufferedUntil = 0;
+      this.lastMessage = "ジャンプ";
+    }
     if (inputLength > 0.1) {
       this.player.rotation.y = Math.atan2(desired.x, desired.z);
     }
@@ -582,6 +614,7 @@ export class VoxelDemo {
         }
       }
       this.grounded = true;
+      this.coyoteUntil = performance.now() + 100;
       this.velocity.y = 0;
       if (this.groundPoundActive) this.finishGroundPound();
     } else {
@@ -598,6 +631,7 @@ export class VoxelDemo {
         this.player.position.y = probe.y + 0.03;
         this.velocity.y = 0;
         this.grounded = true;
+        this.coyoteUntil = performance.now() + 100;
         return;
       }
     }
@@ -926,6 +960,8 @@ export class VoxelDemo {
     this.behindCameraTransition = 0;
     this.groundPoundReadyAt = 0;
     this.groundPoundActive = false;
+    this.jumpBufferedUntil = 0;
+    this.coyoteUntil = performance.now() + 180;
     this.destroyedTotal = 0;
     this.enemiesDefeatedTotal = 0;
     this.combo = 0;
@@ -933,6 +969,7 @@ export class VoxelDemo {
     this.hp = GAME_CONFIG.player.maxHp;
     this.coins = 0;
     this.gameState = "playing";
+    this.snapToGround();
     const spawnPoints = this.getEnemySpawnPoints();
     this.enemyPool.forEach((enemy, index) => {
       enemy.mesh.position.copy(spawnPoints[index] ?? spawnPoints[0]);
