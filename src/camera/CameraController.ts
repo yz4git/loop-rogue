@@ -20,6 +20,7 @@ export class CameraController {
   private readonly desired = new THREE.Vector3();
   private readonly resolved = new THREE.Vector3();
   private readonly logicalPosition = new THREE.Vector3();
+  private readonly smoothedPosition = new THREE.Vector3();
   private readonly direction = new THREE.Vector3();
   private readonly solver: CameraCollisionSolver;
   private recenterTargetYaw = Math.PI;
@@ -96,6 +97,8 @@ export class CameraController {
     this.collisionActive = false;
     this.shakeUntil = 0;
     this.shakeStrength = 0;
+    this.logicalPosition.set(0, 0, 0);
+    this.smoothedPosition.set(0, 0, 0);
     this.camera.position.set(0, 0, 0);
   }
 
@@ -156,7 +159,8 @@ export class CameraController {
 
     this.logicalPosition.copy(this.target).addScaledVector(this.direction, this.actualDistance);
     const followAlpha = 1 - Math.exp(-GAME_CONFIG.camera.followSpeed * delta);
-    this.camera.position.lerp(this.logicalPosition, followAlpha);
+    this.smoothedPosition.lerp(this.logicalPosition, followAlpha);
+    this.camera.position.copy(this.smoothedPosition);
 
     if (now < this.shakeUntil) {
       const falloff = Math.min(1, (this.shakeUntil - now) / 180);
