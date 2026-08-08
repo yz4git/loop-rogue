@@ -25,9 +25,7 @@ export class GameRuntime {
   readonly playerCombat: PlayerCombat;
   private world: VoxelWorld;
   private readonly scene: THREE.Scene;
-  private readonly camera: THREE.PerspectiveCamera;
   private readonly player: THREE.Group;
-  private readonly raycaster: THREE.Raycaster;
   private readonly onMessage: (message: string) => void;
   private readonly cameraController: CameraController;
   private readonly enemyManager: EnemyManager;
@@ -52,9 +50,7 @@ export class GameRuntime {
     onMessage: (message: string) => void,
   ) {
     this.scene = scene;
-    this.camera = camera;
     this.player = player;
-    this.raycaster = raycaster;
     this.world = world;
     this.onMessage = (message) => {
       this.lastMessage = message;
@@ -106,15 +102,8 @@ export class GameRuntime {
   }
 
   get currentWorld(): VoxelWorld { return this.world; }
-  get worldDepth(): number { return this.world.depth; }
-  get worldMetadata() { return this.world.metadata; }
-  get isCameraManual(): boolean { return this.cameraController.isManual; }
-  get cameraYaw(): number { return this.cameraController.yaw; }
-  get playerInputLength(): number { return this.playerController.input.length(); }
   get attackAnimationUntil(): number { return this.playerCombat.animationUntil; }
   get isGroundPoundActive(): boolean { return this.playerCombat.isGroundPoundActive; }
-  get grounded(): boolean { return this.playerController.grounded; }
-  get velocityY(): number { return this.playerController.velocityY; }
 
   private createPlayerCollision(): VoxelPlayerCollision {
     return new VoxelPlayerCollision(
