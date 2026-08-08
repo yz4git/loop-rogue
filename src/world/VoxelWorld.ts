@@ -23,16 +23,6 @@ const FACE_DIRS = [
   { normal: [0, 0, -1], neighbor: [0, 0, -1], corners: [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]] },
 ] as const;
 
-export interface DestroyResult {
-  hit: THREE.Vector3 | null;
-  damaged: number;
-  destroyed: number;
-  oreDestroyed: number;
-  orePoints: THREE.Vector3[];
-  bedrockHit: boolean;
-  dirtyChunks: number;
-}
-
 export class VoxelWorld {
   readonly group = new THREE.Group();
   readonly width: number;
@@ -64,10 +54,6 @@ export class VoxelWorld {
     this.rebuildHealth();
     this.createChunks();
     for (const chunk of this.chunks.values()) this.enqueue(chunk);
-  }
-
-  private index(x: number, y: number, z: number): number {
-    return this.storage.index(x, y, z);
   }
 
   private inBounds(x: number, y: number, z: number): boolean {
@@ -170,7 +156,7 @@ export class VoxelWorld {
     return this.chunks.get(`${Math.floor(x / this.chunkSize)},${Math.floor(y / this.chunkSize)},${Math.floor(z / this.chunkSize)}`);
   }
 
-  private markDirty(x: number, y: number, z: number): void {
+  markVoxelDirty(x: number, y: number, z: number): void {
     this.enqueue(this.chunkAt(x, y, z));
     for (const dir of FACE_DIRS) this.enqueue(this.chunkAt(x + dir.neighbor[0], y + dir.neighbor[1], z + dir.neighbor[2]));
   }
@@ -230,48 +216,6 @@ export class VoxelWorld {
 
   raycast(raycaster: THREE.Raycaster): THREE.Intersection<THREE.Object3D>[] {
     return raycaster.intersectObjects(this.group.children, false);
-  }
-
-  destroySphere(hit: THREE.Vector3, radius = GAME_CONFIG.destruction.punchRadius, maxVoxels = GAME_CONFIG.destruction.maxPunchVoxels): DestroyResult {
-    const damagedAt = hit.clone();
-    const minX = Math.max(0, Math.floor(hit.x - radius));
-    const maxX = Math.min(this.width - 1, Math.ceil(hit.x + radius));
-    const minY = Math.max(0, Math.floor(hit.y - radius));
-    const maxY = Math.min(this.height - 1, Math.ceil(hit.y + radius));
-    const minZ = Math.max(0, Math.floor(hit.z - radius));
-    const maxZ = Math.min(this.depth - 1, Math.ceil(hit.z + radius));
-    const candidates: Array<{ x: number; y: number; z: number; distance: number; type: VoxelType }> = [];
-    let bedrockHit = false;
-    for (let z = minZ; z <= maxZ; z += 1) for (let y = minY; y <= maxY; y += 1) for (let x = minX; x <= maxX; x += 1) {
-      const type = this.getType(x, y, z);
-      const dx = x + 0.5 - hit.x;
-      const dy = y + 0.5 - hit.y;
-      const dz = z + 0.5 - hit.z;
-      const distance = dx * dx + dy * dy + dz * dz;
-      if (distance > radius * radius) continue;
-      if (type === VoxelType.Bedrock) bedrockHit = true;
-      else if (type !== VoxelType.Empty) candidates.push({ x, y, z, distance, type });
-    }
-    candidates.sort((a, b) => a.distance - b.distance);
-    let damaged = 0;
-    let destroyed = 0;
-    let oreDestroyed = 0;
-    const orePoints: THREE.Vector3[] = [];
-    for (const candidate of candidates.slice(0, maxVoxels)) {
-      const index = this.index(candidate.x, candidate.y, candidate.z);
-      damaged += 1;
-      this.storage.health[index] = Math.max(0, this.storage.health[index] - 1);
-      if (this.storage.health[index] === 0) {
-        this.storage.types[index] = VoxelType.Empty;
-        destroyed += 1;
-        if (candidate.type === VoxelType.Ore) {
-          oreDestroyed += 1;
-          orePoints.push(new THREE.Vector3(candidate.x + 0.5, candidate.y + 0.5, candidate.z + 0.5));
-        }
-      }
-      this.markDirty(candidate.x, candidate.y, candidate.z);
-    }
-    return { hit: damaged > 0 || bedrockHit ? damagedAt : null, damaged, destroyed, oreDestroyed, orePoints, bedrockHit, dirtyChunks: this.rebuildQueue.length };
   }
 
   reset(): void {
