@@ -1,0 +1,1 @@
+export const WORLD_GENERATOR_VERSION = 2;
