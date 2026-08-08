@@ -1,28 +1,103 @@
-# Loop Rogue Architecture
+# Runtime Architecture
 
-## Runtime flow
+## Composition root
 
-Input adapters produce `InputState`. The composition root forwards the
-normalized state to `PlayerController` and `CombatContracts`. Destruction
-requests are handled by the existing `VoxelWorld`, while visual feedback is
-sent to `EffectManager`.
+`VoxelDemo` owns only the browser and renderer lifecycle:
 
-## World generation
+- creates the Scene, Camera, Renderer, lights, and player visual mesh
+- installs resize, orientation, visibility, and WebGL context lifecycle handlers
+- starts the animation frame
+- delegates input commands, reset, and stage switching to `GameRuntime`
+- converts renderer counters into `GameViewState`
 
-`ProceduralStageSource` remains the source of generated snapshots. The
-`WorldGenerationPass` contract is the seam for terrain, cave, feature,
-structure, gameplay placement, and validation passes.
+Game rules are not implemented in `VoxelDemo`.
 
-## Compatibility rule
+## Runtime data flow
 
-The existing `VoxelDemo` remains the composition root during migration.
-The refactor adds narrow contracts first, then wires one runtime boundary at a
-time. This keeps the handcrafted stage, procedural stage, voxel collision,
-jumping, punching, enemies, touch controls, PWA, and Safari recovery paths
-available throughout the migration.
+```text
+Touch / keyboard
+  -> InputManager
+  -> GameRuntime
+     -> PlayerController
+     -> PlayerCombat
+     -> DestructionSystem
+     -> VoxelWorld / VoxelStorage
+        -> chunk dirty queue
+        -> chunk mesh rebuild
+```
 
-## Performance rule
+Enemy damage, rewards, effects, audio, and session state are connected by `GameRuntime`. They are not created ad hoc by the UI.
 
-Typed arrays, chunk-local rebuilds, bounded effects, and capped pixel ratio
-remain mandatory. No new contract may introduce per-frame event allocation or
-one-mesh-per-voxel rendering.
+## Player and combat
+
+`PlayerController` owns:
+
+- horizontal acceleration/deceleration
+- gravity and fall speed
+- jump buffer and coyote time
+- grounded state and ground snap
+- stepped horizontal/vertical collision
+- respawn after leaving the world
+
+`PlayerCombat` receives abstract actions from `GameRuntime`. It owns attack cooldowns, the front hit query, air ground-pound state, and attack animation timing. DOM pointer events are handled by `InputManager`, not by combat.
+
+## Destruction and world
+
+`VoxelStorage` owns the typed arrays for voxel types and health. `VoxelWorld` owns bounds, collision queries, chunk meshes, and the rebuild queue.
+
+`DestructionSystem` owns spherical voxel damage:
+
+1. limits the candidate box to the requested radius
+2. sorts nearby voxels by distance
+3. applies material health and the max voxel limit
+4. collects ore and explosion points
+5. marks the affected chunk and neighboring boundary chunks dirty
+
+This keeps terrain damage independent from mesh generation.
+
+## Enemies, items, rewards, and session
+
+- `EnemyManager` owns pooled enemy meshes, movement behaviors, contact damage, HP, knockback, and defeat.
+- `ItemManager` owns pooled coins and pickup checks.
+- `RewardSystem` translates destruction, ore, defeat, combo, and coin actions into `GameSession` calls.
+- `GameSession` is authoritative for HP, coins, score, combo, elapsed time, defeat counts, and playing/cleared/gameover state.
+- `EffectManager` and `AudioManager` consume gameplay outcomes without owning game rules.
+
+## Stage sources and world generation
+
+```text
+StageSource
+  -> HandcraftedStageSource
+  -> ProceduralStageSource
+       -> WorldGenerator
+          -> TerrainPass
+          -> LayerPass
+          -> CavePass
+          -> MainRoutePass
+          -> FeaturePass
+          -> StructurePass
+          -> GameplayPlacementPass
+          -> ValidationPass
+          -> BiomePass
+       -> StageSnapshot
+  -> VoxelWorld
+```
+
+`ProceduralStageSource` normalizes user settings and delegates generation. Each pass receives the same `WorldGenerationContext`. Noise objects and random streams use stable salts, so splitting the method does not introduce `Math.random()` or shared mutable global randomness.
+
+Validation records reachability, generation metrics, and per-pass timing in `StageMetadata`.
+
+## UI boundary
+
+The page owns HTML controls and renders `GameViewState`. Buttons call public commands such as `restart`, `jump`, `punch`, or `selectStage`; they do not mutate HP, enemy arrays, or voxel storage directly.
+
+The 2D fallback implements the same view contract and reports X/Y/Z, grounded state, and vertical velocity so jump regressions can be observed without WebGL.
+
+## Verification
+
+- `npm test`: build, rules, architecture contracts, runtime contracts, and HTML checks
+- `npm run test:worldgen`: three fixed smoke seeds
+- `npm run test:worldgen:stress`: optional 100-seed batch
+- `npm run lint`: ESLint
+
+The connected GitHub-only work environment used for this migration cannot execute npm locally; successful execution must be confirmed by a checkout or CI runner.
