@@ -89,7 +89,6 @@ export class GameRuntime {
       onCameraMove: (deltaX, deltaY) => this.cameraController.rotate(deltaX, deltaY),
       onCameraEnd: () => {
         this.cameraController.endManual();
-        this.movementInputActive = false;
       },
     });
     this.goalMesh = new THREE.Mesh(
@@ -189,7 +188,13 @@ export class GameRuntime {
     if (this.session.state.state === "playing") this.enemyManager.update(delta, this.player);
     this.itemManager.update(delta, this.player);
     this.updateGoal(delta);
-    this.cameraController.update(delta, this.player.position);
+    this.cameraController.update(
+      delta,
+      this.player.position,
+      this.player.rotation.y,
+      this.movementInputActive,
+      now,
+    );
     this.effectManager.update(delta, now);
     return { shouldRender: !this.effectManager.isHitStopped(now) };
   }
