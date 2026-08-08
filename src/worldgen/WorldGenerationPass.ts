@@ -57,6 +57,7 @@ export interface WorldGenerationContext {
   metrics: WorldGenerationMetrics;
   generationPasses: GenerationPassMetric[];
   coinSpawns: StagePoint[];
+  enemySpawns: StagePoint[];
   structureLoot: StagePoint[];
   structureEnemies: StagePoint[];
   reservedVolumes: ReservedVolume[];
@@ -122,6 +123,7 @@ export function createWorldGenerationContext(
     },
     generationPasses: [],
     coinSpawns: [],
+    enemySpawns: [],
     structureLoot: [],
     structureEnemies: [],
     reservedVolumes: [],
