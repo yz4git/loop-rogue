@@ -39,7 +39,6 @@ export const GAME_CONFIG = {
     maxFallSpeed: 18,
     radius: 0.32,
     height: 1.4,
-    // 1mボクセルはジャンプで越える。自動段差補正は小さな誤差だけに限定する。
     stepHeight: 0.2,
     groundProbeDistance: 0.08,
     groundSnapDistance: 0.24,
@@ -61,7 +60,6 @@ export const GAME_CONFIG = {
     coinValue: 10,
   },
   goal: {
-    // ゴールは入口から十分に離れた地下の最終空間へ配置する。
     position: { x: 24.5, y: 9.6, z: 34.5 },
     pickupRange: 1.4,
     requiredDepth: 22,
@@ -69,10 +67,21 @@ export const GAME_CONFIG = {
     requiredEnemiesDefeated: 2,
   },
   camera: {
-    distance: 11,
-    height: 1.55,
-    minPitch: -0.4,
-    maxPitch: 0.65,
-    sensitivity: 0.008,
+    baseDistance: 7.0,
+    minDistance: 1.35,
+    maxDistance: 8.0,
+    targetHeight: 1.42,
+    lookAhead: 0.35,
+    cameraCollisionRadius: 0.35,
+    collisionHysteresis: 0.14,
+    collisionPullOutSpeed: 5.5,
+    followSpeed: 18,
+    recenterDuration: 0.58,
+    manualCooldown: 0.95,
+    yawSensitivity: 0.0068,
+    pitchSensitivity: 0.0052,
+    minPitch: -0.30,
+    maxPitch: 0.80,
+    defaultPitch: 0.28,
   },
 } as const;
