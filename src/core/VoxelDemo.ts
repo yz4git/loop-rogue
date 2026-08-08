@@ -3,6 +3,7 @@ import { GAME_CONFIG } from "./Settings";
 import { VoxelWorld } from "../world/VoxelWorld";
 import type { StageSource } from "../stages/StageSource";
 import { VoxelPlayerCollision } from "../player/VoxelPlayerCollision";
+import { PlayerController } from "../player/PlayerController";
 
 export interface DemoStats {
   fps: number;
@@ -132,6 +133,7 @@ export class VoxelDemo {
   private movementInputActive = false;
   private behindCameraTransition = 0;
   private playerCollision: VoxelPlayerCollision;
+  private readonly playerController: PlayerController;
 
   constructor(mount: HTMLElement, onStats: (stats: DemoStats) => void, source?: StageSource) {
     this.mount = mount;
@@ -151,6 +153,10 @@ export class VoxelDemo {
     this.scene.add(sun);
     this.world = new VoxelWorld(source);
     this.playerCollision = this.createPlayerCollision();
+    this.playerController = new PlayerController(this.player, this.world, this.playerCollision, {
+      onMessage: (message) => { this.lastMessage = message; },
+      onGroundPoundLanded: () => this.finishGroundPound(),
+    });
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
 
@@ -175,7 +181,7 @@ export class VoxelDemo {
     this.player.add(this.leftArm, this.rightArm, this.leftHand, this.rightHand);
     this.player.position.set(this.world.spawnPoint.x, this.world.spawnPoint.y, this.world.spawnPoint.z);
     this.scene.add(this.player);
-    this.snapToGround(true);
+    this.playerController.snapToGround(true);
     this.impactRing = new THREE.Mesh(
       new THREE.RingGeometry(0.12, 0.2, 18),
       new THREE.MeshBasicMaterial({ color: 0xffc36b, transparent: true, opacity: 0, side: THREE.DoubleSide }),
@@ -316,30 +322,16 @@ export class VoxelDemo {
   }
 
   setMoveInput(x: number, y: number): void {
-    this.moveInput.set(Math.max(-1, Math.min(1, x)), Math.max(-1, Math.min(1, y)));
+    this.playerController.setMoveInput(x, y);
   }
 
   jump(): void {
     if (this.gameState !== "playing") return;
-    const now = performance.now();
-    // 入力と接地更新が同じフレームでも、足元直下だけを再確認する。
-    if (!this.grounded && this.velocity.y <= 0) this.snapToGround(false, GAME_CONFIG.player.groundProbeDistance);
-    if (!this.grounded && now > this.coyoteUntil) {
-      this.jumpBufferedUntil = now + 500;
-      return;
-    }
-    this.velocity.y = GAME_CONFIG.player.jumpVelocity;
-    this.grounded = false;
-    this.jumpBufferedUntil = 0;
-    this.lastMessage = "ジャンプ";
-  }
-
-  private hasGroundSupport(): boolean {
-    return this.playerCollision.hasGroundSupport(this.player.position);
+    this.playerController.requestJump();
   }
 
   punch(): void {
-    if (!this.grounded) {
+    if (!this.playerController.grounded) {
       this.startGroundPound();
       return;
     }
@@ -380,8 +372,7 @@ export class VoxelDemo {
   private startGroundPound(): void {
     const now = performance.now();
     if (this.gameState !== "playing" || this.groundPoundActive || now < this.groundPoundReadyAt) return;
-    this.groundPoundActive = true;
-    this.velocity.y = GAME_CONFIG.destruction.groundPoundVelocity;
+    if (!this.playerController.beginGroundPound()) return;
     this.punchUntil = now + 260;
     this.lastMessage = "地面叩き · 着地で広範囲破壊";
     this.playGroundPoundSound();
@@ -482,10 +473,10 @@ export class VoxelDemo {
 
   private readKeyboardInput(): void {
     if (this.keys.size === 0) return;
-    this.moveInput.set(
-      (this.keys.has("KeyD") || this.keys.has("ArrowRight") ? 1 : 0) - (this.keys.has("KeyA") || this.keys.has("ArrowLeft") ? 1 : 0),
-      (this.keys.has("KeyS") || this.keys.has("ArrowDown") ? 1 : 0) - (this.keys.has("KeyW") || this.keys.has("ArrowUp") ? 1 : 0),
-    ).clampLength(0, 1);
+    const x = (this.keys.has("KeyD") || this.keys.has("ArrowRight") ? 1 : 0) - (this.keys.has("KeyA") || this.keys.has("ArrowLeft") ? 1 : 0);
+    const y = (this.keys.has("KeyS") || this.keys.has("ArrowDown") ? 1 : 0) - (this.keys.has("KeyW") || this.keys.has("ArrowUp") ? 1 : 0);
+    const length = Math.hypot(x, y);
+    this.playerController.setMoveInput(length > 1 ? x / length : x, length > 1 ? y / length : y);
   }
 
   private readonly handlePointerDown = (event: PointerEvent) => {
@@ -529,9 +520,7 @@ export class VoxelDemo {
 
   private movePlayer(delta: number): void {
     this.readKeyboardInput();
-    const inputLength = this.moveInput.length();
-    // 背後カメラは移動中ずっと向きを書き換えない。毎フレーム更新すると、
-    // 移動方向→プレイヤー回転→カメラ回転→移動方向の循環で画面が回転する。
+    const inputLength = this.playerController.input.length();
     if (!this.cameraManuallyControlled) {
       if (inputLength > 0.1 && !this.movementInputActive) {
         this.cameraYaw = this.player.rotation.y + Math.PI;
@@ -539,79 +528,11 @@ export class VoxelDemo {
       }
       this.movementInputActive = inputLength > 0.1;
     }
-    const desired = this.desiredMove.set(
-      Math.cos(this.cameraYaw) * this.moveInput.x + Math.sin(this.cameraYaw) * this.moveInput.y,
-      0,
-      -Math.sin(this.cameraYaw) * this.moveInput.x + Math.cos(this.cameraYaw) * this.moveInput.y,
-    );
-    if (inputLength > 0.01) desired.normalize().multiplyScalar(GAME_CONFIG.player.moveSpeed * Math.min(1, inputLength));
-    else desired.set(0, 0, 0);
-    const control = this.grounded ? 1 : GAME_CONFIG.player.airControl;
-    const blend = Math.min(1, GAME_CONFIG.player.acceleration * control * delta);
-    this.velocity.x += (desired.x - this.velocity.x) * blend;
-    this.velocity.z += (desired.z - this.velocity.z) * blend;
-    if (inputLength < 0.01 && this.grounded) {
-      this.velocity.x *= Math.max(0, 1 - 12 * delta);
-      this.velocity.z *= Math.max(0, 1 - 12 * delta);
-    }
-    if (this.grounded && this.hasGroundSupport() && this.velocity.y <= 0) {
-      this.velocity.y = 0;
-    } else {
-      this.grounded = false;
-      this.velocity.y = Math.max(
-        -GAME_CONFIG.player.maxFallSpeed,
-        this.velocity.y - GAME_CONFIG.player.gravity * delta,
-      );
-    }
-    const subSteps = Math.max(1, Math.ceil(Math.max(Math.abs(this.velocity.x), Math.abs(this.velocity.y), Math.abs(this.velocity.z)) * delta / 0.18));
-    const stepDelta = delta / subSteps;
-    for (let step = 0; step < subSteps; step += 1) {
-      this.grounded = this.playerCollision.moveHorizontal(
-        this.player.position,
-        this.velocity.x * stepDelta,
-        this.velocity.z * stepDelta,
-        this.grounded && this.velocity.y <= 0,
-      );
-      const vertical = this.playerCollision.moveVertical(this.player.position, this.velocity.y * stepDelta);
-      if (vertical.hitCeiling) this.velocity.y = 0;
-      if (vertical.landed) {
-        this.grounded = true;
-        this.velocity.y = 0;
-        this.coyoteUntil = performance.now() + 100;
-        if (this.groundPoundActive) this.finishGroundPound();
-      }
-    }
-    if (this.grounded) this.snapToGround(false, GAME_CONFIG.player.groundSnapDistance);
-    if (this.grounded) this.coyoteUntil = performance.now() + 100;
-    if (this.jumpBufferedUntil > performance.now() && this.grounded) {
-      this.velocity.y = GAME_CONFIG.player.jumpVelocity;
-      this.grounded = false;
-      this.jumpBufferedUntil = 0;
-      this.lastMessage = "ジャンプ";
-    }
-    if (inputLength > 0.1) {
-      this.player.rotation.y = Math.atan2(desired.x, desired.z);
-    }
-    if (this.player.position.y < -4 || this.player.position.x < 1 || this.player.position.z < 1 || this.player.position.x > this.world.width - 1 || this.player.position.z > this.world.depth - 1) {
-      this.respawn();
-    }
-  }
-
-  private snapToGround(force = false, maxDrop = GAME_CONFIG.player.groundSnapDistance): void {
-    if (this.groundPoundActive) return;
-    if (!force && this.velocity.y > 0.01) return;
-    const snapDistance = force ? 4 : maxDrop;
-    if (!this.playerCollision.snapToGround(this.player.position, snapDistance)) {
-      if (!force) this.grounded = false;
-      return;
-    }
-    this.velocity.y = 0;
-    this.grounded = true;
-    this.coyoteUntil = performance.now() + 100;
+    this.playerController.update(delta, this.cameraYaw);
   }
 
   private finishGroundPound(): void {
-    this.groundPoundActive = false;
+    this.playerController.endGroundPound();
     this.groundPoundReadyAt = performance.now() + GAME_CONFIG.destruction.groundPoundCooldown * 1000;
     const point = new THREE.Vector3(this.player.position.x, this.player.position.y - 0.72, this.player.position.z);
     const result = this.world.destroySphere(point, GAME_CONFIG.destruction.groundPoundRadius, GAME_CONFIG.destruction.maxGroundPoundVoxels);
@@ -644,7 +565,7 @@ export class VoxelDemo {
     this.player.position.set(GAME_CONFIG.player.spawn.x, GAME_CONFIG.player.spawn.y, GAME_CONFIG.player.spawn.z);
     this.velocity.set(0, 0, 0);
     this.grounded = false;
-    this.snapToGround(true);
+    this.playerController.snapToGround(true);
     this.lastMessage = "落下したため入口へ戻りました";
   }
 
@@ -696,7 +617,7 @@ export class VoxelDemo {
     if (knockback.lengthSq() > 0.001) this.player.position.addScaledVector(knockback.normalize(), 0.35);
     // Contact damage may push the player horizontally, but must never teleport
     // an airborne player down to the floor or lift them onto a nearby ledge.
-    this.snapToGround();
+    this.playerController.snapToGround();
     this.lastMessage = this.hp > 0 ? `被敵人にぶつかった · HP ${this.hp}/${GAME_CONFIG.player.maxHp}` : "力尽きた · リセットで再挑戦";
     if (this.hp <= 0) this.gameState = "gameover";
   }
@@ -829,7 +750,7 @@ export class VoxelDemo {
     this.rightArm.position.set(0.27, 0.72, 0.18);
     this.leftHand.position.set(-0.3, 0.68, 0.42);
     this.rightHand.position.set(0.3, 0.68, 0.42);
-    if (this.groundPoundActive) {
+    if (this.playerController.groundPoundActive) {
       const progress = Math.min(1, Math.max(0, (now - (this.punchUntil - 260)) / 260));
       this.playerBody.scale.set(1.15 - progress * 0.15, 0.88 + progress * 0.12, 1.15 - progress * 0.15);
       this.playerBody.rotation.x = progress * 0.4;
@@ -927,17 +848,14 @@ export class VoxelDemo {
     this.world.reset();
     this.player.position.set(this.world.spawnPoint.x, this.world.spawnPoint.y, this.world.spawnPoint.z);
     this.goalMesh.position.set(this.world.goalPoint.x, this.world.goalPoint.y, this.world.goalPoint.z);
-    this.velocity.set(0, 0, 0);
-    this.moveInput.set(0, 0);
+    this.playerController.reset();
     this.cameraYaw = Math.PI;
     this.cameraPitch = 0.25;
     this.cameraManuallyControlled = false;
     this.movementInputActive = false;
     this.behindCameraTransition = 0;
     this.groundPoundReadyAt = 0;
-    this.groundPoundActive = false;
-    this.jumpBufferedUntil = 0;
-    this.coyoteUntil = performance.now() + 180;
+    this.playerController.reset();
     this.destroyedTotal = 0;
     this.enemiesDefeatedTotal = 0;
     this.combo = 0;
@@ -969,6 +887,7 @@ export class VoxelDemo {
     this.world.dispose();
     this.world = new VoxelWorld(source);
     this.playerCollision = this.createPlayerCollision();
+    this.playerController.setWorld(this.world, this.playerCollision);
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
     this.reset();
