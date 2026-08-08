@@ -6,6 +6,7 @@ import { VoxelPlayerCollision } from "../player/VoxelPlayerCollision";
 import { PlayerController } from "../player/PlayerController";
 import { PlayerCombat } from "../combat/PlayerCombat";
 import { DestructionSystem } from "../destruction/DestructionSystem";
+import { InputManager } from "../input/InputManager";
 
 export interface DemoStats {
   fps: number;
@@ -63,7 +64,6 @@ export class VoxelDemo {
   world: VoxelWorld;
   private readonly mount: HTMLElement;
   private readonly raycaster = new THREE.Raycaster();
-  private readonly pointer = new THREE.Vector2();
   private readonly onStats: (stats: DemoStats) => void;
   private readonly clock = new THREE.Clock();
   private readonly player = new THREE.Group();
@@ -82,7 +82,6 @@ export class VoxelDemo {
   private readonly desiredCamera = new THREE.Vector3();
   private readonly cameraDirection = new THREE.Vector3();
   private readonly cameraRay = new THREE.Raycaster();
-  private readonly keys = new Set<string>();
   private readonly impactRing: THREE.Mesh;
   private readonly enemyPool: EnemyState[] = [];
   private readonly coinPool: CoinState[] = [];
@@ -106,15 +105,11 @@ export class VoxelDemo {
   private combo = 0;
   private comboExpiresAt = 0;
   private lastMessage = "深部へ掘り、敵2体を倒してゴールへ";
-  private lastTapAt = 0;
   private hitStopUntil = 0;
   private statsTimer = 0;
   // 初期カメラは進行方向の後ろ。入口側を向くため、開始直後に岩壁を映さない。
   private cameraYaw = Math.PI;
   private cameraPitch = 0.25;
-  private cameraPointerId: number | null = null;
-  private cameraPointerX = 0;
-  private cameraPointerY = 0;
   private shakeUntil = 0;
   private shakeStrength = 0;
   private impactStartedAt = 0;
@@ -128,6 +123,7 @@ export class VoxelDemo {
   private readonly playerController: PlayerController;
   private readonly playerCombat: PlayerCombat;
   private readonly destructionSystem: DestructionSystem;
+  private readonly inputManager: InputManager;
 
   constructor(mount: HTMLElement, onStats: (stats: DemoStats) => void, source?: StageSource) {
     this.mount = mount;
@@ -159,6 +155,25 @@ export class VoxelDemo {
       onMessage: (message) => { this.lastMessage = message; },
       playPunchSound: (hit) => this.playPunchSound(hit),
       playGroundPoundSound: () => this.playGroundPoundSound(),
+    });
+    this.inputManager = new InputManager({
+      onJump: () => this.jump(),
+      onPunch: () => this.punch(),
+      onCameraStart: () => {
+        this.cameraManuallyControlled = true;
+        this.behindCameraTransition = 0;
+      },
+      onCameraMove: (deltaX, deltaY) => {
+        this.cameraYaw -= deltaX * GAME_CONFIG.camera.sensitivity;
+        this.cameraPitch = Math.max(
+          GAME_CONFIG.camera.minPitch,
+          Math.min(GAME_CONFIG.camera.maxPitch, this.cameraPitch + deltaY * GAME_CONFIG.camera.sensitivity),
+        );
+      },
+      onCameraEnd: () => {
+        this.cameraManuallyControlled = false;
+        this.movementInputActive = false;
+      },
     });
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
@@ -201,14 +216,9 @@ export class VoxelDemo {
     this.scene.add(this.goalMesh);
     this.createGameplayPools();
 
-    this.renderer.domElement.addEventListener("pointerdown", this.handlePointerDown, { passive: false });
-    this.renderer.domElement.addEventListener("pointermove", this.handlePointerMove, { passive: false });
-    this.renderer.domElement.addEventListener("pointerup", this.handlePointerUp, { passive: false });
-    this.renderer.domElement.addEventListener("pointercancel", this.handlePointerUp, { passive: false });
+    this.inputManager.attach(window, this.renderer.domElement);
     this.renderer.domElement.addEventListener("webglcontextlost", this.handleContextLost, { passive: false });
     this.renderer.domElement.addEventListener("webglcontextrestored", this.handleContextRestored);
-    window.addEventListener("keydown", this.handleKeyDown);
-    window.addEventListener("keyup", this.handleKeyUp);
     window.addEventListener("resize", this.resize);
     window.addEventListener("orientationchange", this.resize);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -325,7 +335,7 @@ export class VoxelDemo {
   }
 
   setMoveInput(x: number, y: number): void {
-    this.playerController.setMoveInput(x, y);
+    this.inputManager.setMoveInput(x, y);
   }
 
   jump(): void {
@@ -429,66 +439,9 @@ export class VoxelDemo {
     return { destroyed, enemies };
   }
 
-  private readonly handleKeyDown = (event: KeyboardEvent) => {
-    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) event.preventDefault();
-    this.keys.add(event.code);
-    if (event.code === "Space") this.jump();
-    if (event.code === "KeyF" || event.code === "KeyJ") this.punch();
-  };
-
-  private readonly handleKeyUp = (event: KeyboardEvent) => {
-    this.keys.delete(event.code);
-  };
-
-  private readKeyboardInput(): void {
-    if (this.keys.size === 0) return;
-    const x = (this.keys.has("KeyD") || this.keys.has("ArrowRight") ? 1 : 0) - (this.keys.has("KeyA") || this.keys.has("ArrowLeft") ? 1 : 0);
-    const y = (this.keys.has("KeyS") || this.keys.has("ArrowDown") ? 1 : 0) - (this.keys.has("KeyW") || this.keys.has("ArrowUp") ? 1 : 0);
-    const length = Math.hypot(x, y);
-    this.playerController.setMoveInput(length > 1 ? x / length : x, length > 1 ? y / length : y);
-  }
-
-  private readonly handlePointerDown = (event: PointerEvent) => {
-    event.preventDefault();
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const localX = event.clientX - rect.left;
-    if (localX > rect.width * 0.52) {
-      this.cameraManuallyControlled = true;
-      this.behindCameraTransition = 0;
-      this.cameraPointerId = event.pointerId;
-      this.cameraPointerX = event.clientX;
-      this.cameraPointerY = event.clientY;
-      this.renderer.domElement.setPointerCapture(event.pointerId);
-      return;
-    }
-    const now = performance.now();
-    if (now - this.lastTapAt < 280) return;
-    this.lastTapAt = now;
-    this.punch();
-  };
-
-  private readonly handlePointerMove = (event: PointerEvent) => {
-    if (this.cameraPointerId !== event.pointerId) return;
-    event.preventDefault();
-    const dx = event.clientX - this.cameraPointerX;
-    const dy = event.clientY - this.cameraPointerY;
-    this.cameraYaw -= dx * GAME_CONFIG.camera.sensitivity;
-    this.cameraPitch = Math.max(GAME_CONFIG.camera.minPitch, Math.min(GAME_CONFIG.camera.maxPitch, this.cameraPitch + dy * GAME_CONFIG.camera.sensitivity));
-    this.cameraPointerX = event.clientX;
-    this.cameraPointerY = event.clientY;
-  };
-
-  private readonly handlePointerUp = (event: PointerEvent) => {
-    if (this.cameraPointerId === event.pointerId) {
-      this.cameraPointerId = null;
-      // カメラ操作を終えた次の移動で、必ず背後追従へ復帰する。
-      this.cameraManuallyControlled = false;
-      this.movementInputActive = false;
-    }
-  };
-
   private movePlayer(delta: number): void {
-    this.readKeyboardInput();
+    const input = this.inputManager.update();
+    this.playerController.setMoveInput(input.moveX, input.moveY);
     const inputLength = this.playerController.input.length();
     if (!this.cameraManuallyControlled) {
       if (inputLength > 0.1 && !this.movementInputActive) {
@@ -816,12 +769,12 @@ export class VoxelDemo {
     this.goalMesh.position.set(this.world.goalPoint.x, this.world.goalPoint.y, this.world.goalPoint.z);
     this.playerController.reset();
     this.playerCombat.reset();
+    this.inputManager.setMoveInput(0, 0);
     this.cameraYaw = Math.PI;
     this.cameraPitch = 0.25;
     this.cameraManuallyControlled = false;
     this.movementInputActive = false;
     this.behindCameraTransition = 0;
-        this.playerController.reset();
     this.destroyedTotal = 0;
     this.enemiesDefeatedTotal = 0;
     this.combo = 0;
@@ -928,12 +881,7 @@ export class VoxelDemo {
     window.removeEventListener("resize", this.resize);
     window.removeEventListener("orientationchange", this.resize);
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
-    window.removeEventListener("keydown", this.handleKeyDown);
-    window.removeEventListener("keyup", this.handleKeyUp);
-    this.renderer.domElement.removeEventListener("pointerdown", this.handlePointerDown);
-    this.renderer.domElement.removeEventListener("pointermove", this.handlePointerMove);
-    this.renderer.domElement.removeEventListener("pointerup", this.handlePointerUp);
-    this.renderer.domElement.removeEventListener("pointercancel", this.handlePointerUp);
+    this.inputManager.detach();
     this.renderer.domElement.removeEventListener("webglcontextlost", this.handleContextLost);
     this.renderer.domElement.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.world.dispose();
