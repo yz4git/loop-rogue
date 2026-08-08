@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GAME_CONFIG } from "../core/Settings";
-import type { VoxelWorld, DestroyResult } from "../world/VoxelWorld";
+import { VOXEL_DEFINITIONS, VoxelType } from "../world/VoxelDefinitions";
+import type { VoxelWorld } from "../world/VoxelWorld";
 
 export type DestructionSource = "punch" | "ground-pound" | "explosion";
 
@@ -23,6 +24,14 @@ export interface DestructionResult {
   dirtyChunks: number;
 }
 
+interface VoxelCandidate {
+  x: number;
+  y: number;
+  z: number;
+  distance: number;
+  type: VoxelType;
+}
+
 export class DestructionSystem {
   constructor(private world: VoxelWorld) {}
 
@@ -31,12 +40,67 @@ export class DestructionSystem {
   }
 
   damageArea(request: DestructionRequest): DestructionResult {
-    const result = this.world.destroySphere(
-      request.center,
-      request.radius,
-      request.maxVoxels,
-    );
-    return this.toResult(request.source, result);
+    const hit = request.center.clone();
+    const minX = Math.max(0, Math.floor(hit.x - request.radius));
+    const maxX = Math.min(this.world.width - 1, Math.ceil(hit.x + request.radius));
+    const minY = Math.max(0, Math.floor(hit.y - request.radius));
+    const maxY = Math.min(this.world.height - 1, Math.ceil(hit.y + request.radius));
+    const minZ = Math.max(0, Math.floor(hit.z - request.radius));
+    const maxZ = Math.min(this.world.depth - 1, Math.ceil(hit.z + request.radius));
+    const candidates: VoxelCandidate[] = [];
+    let bedrockHit = false;
+    const radiusSquared = request.radius * request.radius;
+
+    for (let z = minZ; z <= maxZ; z += 1) {
+      for (let y = minY; y <= maxY; y += 1) {
+        for (let x = minX; x <= maxX; x += 1) {
+          const type = this.world.getType(x, y, z);
+          const dx = x + 0.5 - hit.x;
+          const dy = y + 0.5 - hit.y;
+          const dz = z + 0.5 - hit.z;
+          const distance = dx * dx + dy * dy + dz * dz;
+          if (distance > radiusSquared) continue;
+          if (type === VoxelType.Bedrock) {
+            bedrockHit = true;
+          } else if (type !== VoxelType.Empty) {
+            candidates.push({ x, y, z, distance, type });
+          }
+        }
+      }
+    }
+
+    candidates.sort((a, b) => a.distance - b.distance);
+    let damagedVoxels = 0;
+    let destroyedCount = 0;
+    let oreDestroyed = 0;
+    const orePoints: THREE.Vector3[] = [];
+    for (const candidate of candidates.slice(0, request.maxVoxels)) {
+      const index = this.world.storage.index(candidate.x, candidate.y, candidate.z);
+      damagedVoxels += 1;
+      this.world.storage.health[index] = Math.max(0, this.world.storage.health[index] - 1);
+      if (this.world.storage.health[index] === 0) {
+        this.world.storage.types[index] = VoxelType.Empty;
+        destroyedCount += 1;
+        if (candidate.type === VoxelType.Ore) {
+          oreDestroyed += 1;
+          orePoints.push(new THREE.Vector3(candidate.x + 0.5, candidate.y + 0.5, candidate.z + 0.5));
+        }
+      }
+      this.world.markVoxelDirty(candidate.x, candidate.y, candidate.z);
+    }
+
+    const explosionPoints = orePoints.map((point) => point.clone());
+    return {
+      source: request.source,
+      hit: damagedVoxels > 0 || bedrockHit ? hit : null,
+      damagedVoxels,
+      destroyedCount,
+      oreDestroyed,
+      orePoints,
+      explosionPoints,
+      bedrockHit,
+      dirtyChunks: this.world.pendingRebuilds,
+    };
   }
 
   explode(
@@ -73,20 +137,5 @@ export class DestructionSystem {
       aggregate.dirtyChunks = result.dirtyChunks;
     }
     return aggregate;
-  }
-
-  private toResult(source: DestructionSource, result: DestroyResult): DestructionResult {
-    const explosionPoints = result.orePoints.map((point) => point.clone());
-    return {
-      source,
-      hit: result.hit,
-      damagedVoxels: result.damaged,
-      destroyedCount: result.destroyed,
-      oreDestroyed: result.oreDestroyed,
-      orePoints: result.orePoints,
-      explosionPoints,
-      bedrockHit: result.bedrockHit,
-      dirtyChunks: result.dirtyChunks,
-    };
   }
 }
