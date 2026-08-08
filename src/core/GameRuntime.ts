@@ -105,6 +105,7 @@ export class GameRuntime {
     scene.add(this.goalMesh);
   }
 
+  get currentWorld(): VoxelWorld { return this.world; }
   get worldDepth(): number { return this.world.depth; }
   get worldMetadata() { return this.world.metadata; }
   get isCameraManual(): boolean { return this.cameraController.isManual; }
@@ -150,8 +151,12 @@ export class GameRuntime {
     this.playerCombat.punch(this.playerController.grounded);
   }
 
-  reset(): void {
-    this.world.reset();
+  initialize(): void {
+    this.reset(false);
+  }
+
+  reset(regenerateWorld = true): void {
+    if (regenerateWorld) this.world.reset();
     this.player.position.set(this.world.spawnPoint.x, this.world.spawnPoint.y, this.world.spawnPoint.z);
     this.goalMesh.position.set(this.world.goalPoint.x, this.world.goalPoint.y, this.world.goalPoint.z);
     this.session.reset();
