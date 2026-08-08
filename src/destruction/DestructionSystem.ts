@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GAME_CONFIG } from "../core/Settings";
-import { VOXEL_DEFINITIONS, VoxelType } from "../world/VoxelDefinitions";
+import { VoxelType } from "../world/VoxelDefinitions";
 import type { VoxelWorld } from "../world/VoxelWorld";
 
 export type DestructionSource = "punch" | "ground-pound" | "explosion";
