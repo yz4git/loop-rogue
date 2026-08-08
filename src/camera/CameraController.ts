@@ -107,6 +107,7 @@ export class CameraController {
     playerPosition: THREE.Vector3,
     playerHeading?: number,
     moving = false,
+    groundPoundActive = false,
     now = performance.now(),
   ): void {
     this.manualCooldown = Math.max(0, this.manualCooldown - delta);
@@ -119,6 +120,7 @@ export class CameraController {
 
     this.target.copy(playerPosition);
     this.target.y += GAME_CONFIG.camera.targetHeight;
+    if (groundPoundActive) this.target.y += GAME_CONFIG.camera.groundPoundCameraLift;
     if (!this.manuallyControlled && moving && playerHeading !== undefined) {
       const lookAhead = GAME_CONFIG.camera.lookAhead * Math.min(1, delta * 8);
       this.target.x += Math.sin(playerHeading) * lookAhead;
@@ -127,7 +129,10 @@ export class CameraController {
 
     const desiredDistance = Math.max(
       GAME_CONFIG.camera.minDistance,
-      Math.min(GAME_CONFIG.camera.maxDistance, GAME_CONFIG.camera.baseDistance),
+      Math.min(
+        GAME_CONFIG.camera.maxDistance,
+        GAME_CONFIG.camera.baseDistance + (groundPoundActive ? GAME_CONFIG.camera.groundPoundCameraDistance : 0),
+      ),
     );
     const horizontal = Math.cos(this.pitch) * desiredDistance;
     this.desired.set(
