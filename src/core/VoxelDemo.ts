@@ -11,6 +11,8 @@ import { CameraController } from "../camera/CameraController";
 import { EnemyManager, type EnemyDamageResult } from "../enemies/EnemyManager";
 import { ItemManager } from "../items/ItemManager";
 import { RewardSystem } from "../rewards/RewardSystem";
+import { EffectManager } from "../effects/EffectManager";
+import { AudioManager } from "../audio/AudioManager";
 
 export interface DemoStats {
   fps: number;
@@ -40,14 +42,6 @@ export interface DemoStats {
   biomeCounts: string;
 }
 
-interface EffectParticle {
-  mesh: THREE.Mesh;
-  velocity: THREE.Vector3;
-  life: number;
-  maxLife: number;
-  spin: THREE.Vector3;
-}
-
 export class VoxelDemo {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(52, 1, 0.1, 100);
@@ -66,27 +60,18 @@ export class VoxelDemo {
   private readonly handGeometry = new THREE.SphereGeometry(0.15, 8, 6);
   private readonly armGeometry = new THREE.CapsuleGeometry(0.085, 0.34, 4, 6);
   private readonly handMaterial = new THREE.MeshLambertMaterial({ color: 0x68e2d1 });
-  private readonly nextPosition = new THREE.Vector3();
-  private readonly impactRing: THREE.Mesh;
 
   private readonly goalMesh: THREE.Mesh;
-  private readonly debrisPool: EffectParticle[] = [];
-  private readonly dustPool: EffectParticle[] = [];
-  private readonly debrisGeometry = new THREE.BoxGeometry(0.16, 0.16, 0.16);
-  private readonly dustGeometry = new THREE.SphereGeometry(0.13, 6, 4);
-  private readonly debrisMaterial = new THREE.MeshBasicMaterial({ color: 0xc77b4e });
-  private readonly debrisRockMaterial = new THREE.MeshBasicMaterial({ color: 0x9fa9b5 });
-  private readonly dustMaterial = new THREE.MeshBasicMaterial({ color: 0xd7a06c, transparent: true, opacity: 0.42, depthWrite: false });
-  private audioContext: AudioContext | null = null;
+
   private animationFrame = 0;
   private destroyedTotal = 0;
   private enemiesDefeatedTotal = 0;
 
   private lastMessage = "深部へ掘り、敵2体を倒してゴールへ";
-  private hitStopUntil = 0;
+
   private statsTimer = 0;
   // 初期カメラは進行方向の後ろ。入口側を向くため、開始直後に岩壁を映さない。
-  private impactStartedAt = 0;
+
   private hp = GAME_CONFIG.player.maxHp;
 
   private gameState: "playing" | "cleared" | "gameover" = "playing";
@@ -96,6 +81,8 @@ export class VoxelDemo {
   private readonly enemyManager: EnemyManager;
   private readonly itemManager: ItemManager;
   private readonly rewardSystem: RewardSystem;
+  private readonly effectManager: EffectManager;
+  private readonly audioManager: AudioManager;
   private readonly playerController: PlayerController;
   private readonly playerCombat: PlayerCombat;
   private readonly destructionSystem: DestructionSystem;
@@ -119,6 +106,8 @@ export class VoxelDemo {
     this.scene.add(sun);
     this.world = new VoxelWorld(source);
     this.cameraController = new CameraController(this.camera, this.world);
+    this.effectManager = new EffectManager(this.scene, this.camera);
+    this.audioManager = new AudioManager();
     this.destructionSystem = new DestructionSystem(this.world);
     this.rewardSystem = new RewardSystem();
     this.itemManager = new ItemManager(this.scene, this.world, {
@@ -142,8 +131,8 @@ export class VoxelDemo {
       onTerrainHit: (point, now) => this.handleTerrainPunch(point, now),
       onGroundPoundStart: () => this.playerController.beginGroundPound(),
       onMessage: (message) => { this.lastMessage = message; },
-      playPunchSound: (hit) => this.playPunchSound(hit),
-      playGroundPoundSound: () => this.playGroundPoundSound(),
+      playPunchSound: (hit) => this.audioManager.playPunch(hit),
+      playGroundPoundSound: () => this.audioManager.playGroundPound(),
     });
     this.inputManager = new InputManager({
       onJump: () => this.jump(),
@@ -180,13 +169,6 @@ export class VoxelDemo {
     this.player.position.set(this.world.spawnPoint.x, this.world.spawnPoint.y, this.world.spawnPoint.z);
     this.scene.add(this.player);
     this.playerController.snapToGround(true);
-    this.impactRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.12, 0.2, 18),
-      new THREE.MeshBasicMaterial({ color: 0xffc36b, transparent: true, opacity: 0, side: THREE.DoubleSide }),
-    );
-    this.impactRing.visible = false;
-    this.scene.add(this.impactRing);
-    this.createEffectPools();
     this.goalMesh = new THREE.Mesh(
       new THREE.TorusGeometry(0.55, 0.12, 8, 20),
       new THREE.MeshBasicMaterial({ color: 0x75e3d6, transparent: true, opacity: 0.9 }),
@@ -248,32 +230,19 @@ export class VoxelDemo {
     }
   };
 
-  private createEffectPools(): void {
-    for (let index = 0; index < GAME_CONFIG.effects.maxDebris; index += 1) {
-      const mesh = new THREE.Mesh(this.debrisGeometry, index % 3 === 0 ? this.debrisRockMaterial : this.debrisMaterial);
-      mesh.visible = false;
-      this.scene.add(mesh);
-      this.debrisPool.push({ mesh, velocity: new THREE.Vector3(), life: 0, maxLife: 0, spin: new THREE.Vector3() });
-    }
-    for (let index = 0; index < GAME_CONFIG.effects.maxDust; index += 1) {
-      const mesh = new THREE.Mesh(this.dustGeometry, this.dustMaterial);
-      mesh.visible = false;
-      this.scene.add(mesh);
-      this.dustPool.push({ mesh, velocity: new THREE.Vector3(), life: 0, maxLife: 0, spin: new THREE.Vector3() });
-    }
-  }
-
   setMoveInput(x: number, y: number): void {
     this.inputManager.setMoveInput(x, y);
   }
 
   jump(): void {
     if (this.gameState !== "playing") return;
+    this.audioManager.unlock();
     this.playerController.requestJump();
   }
 
   punch(): void {
     if (this.gameState !== "playing") return;
+    this.audioManager.unlock();
     this.playerCombat.punch(this.playerController.grounded);
   }
 
@@ -287,14 +256,14 @@ export class VoxelDemo {
     this.destroyedTotal += result.destroyedCount;
     const blast = this.processOreExplosions(result.explosionPoints, now);
     const comboText = this.rewardSystem.recordDestruction(result.destroyedCount, result.oreDestroyed, now);
-    this.hitStopUntil = now + GAME_CONFIG.destruction.hitStop * 1000;
+    this.effectManager.hitStop(GAME_CONFIG.destruction.hitStop);
     this.cameraController.addShake(
       result.destroyedCount > 0 ? 180 : 90,
       result.destroyedCount > 0 ? 0.12 : 0.045,
     );
-    this.showImpact(point, result.destroyedCount > 0);
-    this.spawnDestructionEffects(point, result.destroyedCount);
-    this.playPunchSound(result.destroyedCount > 0);
+    this.effectManager.showImpact(point, result.destroyedCount > 0);
+    this.effectManager.spawnDestruction(point, result.destroyedCount);
+    this.audioManager.playPunch(result.destroyedCount > 0);
     this.lastMessage = result.destroyedCount > 0
       ? `パンチ命中 · ${result.destroyedCount + blast.destroyed}ブロック破壊${blast.enemies > 0 ? ` · 敵${blast.enemies}体に爆発命中` : ""}${result.oreDestroyed > 0 ? ` · 鉱石+${result.oreDestroyed * 25}G` : ""}${comboText}`
       : result.bedrockHit ? "硬い岩盤だ。パンチが弾かれた" : "パンチ命中 · もう一度叩こう";
@@ -302,11 +271,11 @@ export class VoxelDemo {
 
   private handleEnemyDamage(result: EnemyDamageResult): void {
     const now = performance.now();
-    this.hitStopUntil = now + GAME_CONFIG.destruction.hitStop * 1000;
+    this.effectManager.hitStop(GAME_CONFIG.destruction.hitStop);
     this.cameraController.addShake(150, 0.1);
-    this.showImpact(result.hitPoint, true);
-    this.spawnDestructionEffects(result.position, result.defeated ? 4 : 2);
-    this.playPunchSound(true);
+    this.effectManager.showImpact(result.hitPoint, true);
+    this.effectManager.spawnDestruction(result.position, result.defeated ? 4 : 2);
+    this.audioManager.playPunch(true);
     if (result.defeated) {
       this.itemManager.spawn(result.position);
       this.enemiesDefeatedTotal += 1;
@@ -335,9 +304,9 @@ export class VoxelDemo {
         GAME_CONFIG.destruction.blastRadius + 0.7,
         this.player.position,
       ).length;
-      this.showImpact(point, true);
-      this.spawnDestructionEffects(point, result.destroyedCount + 4, 2.4);
-      this.playExplosionSound();
+      this.effectManager.showImpact(point, true);
+      this.effectManager.spawnDestruction(point, result.destroyedCount + 4, 2.4);
+      this.audioManager.playExplosion();
       if (comboText) this.lastMessage = `爆発連鎖${comboText}`;
     }
     return { destroyed, enemies };
@@ -374,11 +343,11 @@ export class VoxelDemo {
       this.player.position,
     ).length;
     const now = performance.now();
-    this.hitStopUntil = now + 80;
+    this.effectManager.hitStop(0.08);
     this.cameraController.addShake(300, result.destroyedCount > 0 ? 0.28 : 0.12);
-    this.showImpact(point, true);
-    this.spawnDestructionEffects(point, result.destroyedCount, 2.2);
-    this.playGroundPoundSound();
+    this.effectManager.showImpact(point, true);
+    this.effectManager.spawnDestruction(point, result.destroyedCount, 2.2);
+    this.audioManager.playGroundPound();
     this.lastMessage = result.destroyedCount > 0 || enemiesHit > 0 || blast.destroyed > 0
       ? `地面叩き · ${result.destroyedCount + blast.destroyed}ブロック破壊${enemiesHit + blast.enemies > 0 ? ` · 敵${enemiesHit + blast.enemies}体に命中` : ""}`
       : result.bedrockHit ? "地面叩き · 岩盤に阻まれた" : "地面叩き · 着地の衝撃だけが響いた";
@@ -422,68 +391,6 @@ export class VoxelDemo {
     this.cameraController.update(delta, this.player.position);
   }
 
-  private showImpact(point: THREE.Vector3, strong: boolean): void {
-    const material = this.impactRing.material as THREE.MeshBasicMaterial;
-    this.impactRing.position.copy(point);
-    this.impactRing.scale.setScalar(strong ? 1.2 : 0.8);
-    this.impactStartedAt = performance.now();
-    this.impactRing.visible = true;
-    material.opacity = 0.9;
-    this.impactRing.lookAt(this.camera.position);
-  }
-
-  private spawnDestructionEffects(point: THREE.Vector3, destroyed: number, intensity = 1): void {
-    const debrisCount = Math.min(GAME_CONFIG.effects.maxDebris, Math.max(5, Math.round(destroyed * 2 * intensity)));
-    let spawned = 0;
-    for (const particle of this.debrisPool) {
-      if (particle.mesh.visible) continue;
-      particle.mesh.visible = true;
-      particle.mesh.position.copy(point);
-      particle.mesh.position.x += (Math.random() - 0.5) * 0.45;
-      particle.mesh.position.y += (Math.random() - 0.5) * 0.45;
-      particle.mesh.position.z += (Math.random() - 0.5) * 0.45;
-      particle.velocity.set((Math.random() - 0.5) * 3.2, 1.2 + Math.random() * 2.6, (Math.random() - 0.5) * 3.2);
-      particle.spin.set(Math.random() * 8, Math.random() * 8, Math.random() * 8);
-      particle.maxLife = GAME_CONFIG.effects.debrisLifetime * (0.65 + Math.random() * 0.55);
-      particle.life = particle.maxLife;
-      spawned += 1;
-      if (spawned >= debrisCount) break;
-    }
-    let dustSpawned = 0;
-    for (const particle of this.dustPool) {
-      if (particle.mesh.visible) continue;
-      particle.mesh.visible = true;
-      particle.mesh.position.copy(point);
-      particle.velocity.set((Math.random() - 0.5) * 0.8, 0.35 + Math.random() * 0.7, (Math.random() - 0.5) * 0.8);
-      particle.maxLife = 0.35 + Math.random() * 0.25;
-      particle.life = particle.maxLife;
-      particle.mesh.scale.setScalar(0.6 + Math.random() * 0.45);
-      dustSpawned += 1;
-      if (dustSpawned >= Math.min(GAME_CONFIG.effects.maxDust, Math.round(8 * intensity))) break;
-    }
-  }
-
-  private updateEffects(delta: number): void {
-    for (const particle of this.debrisPool) {
-      if (!particle.mesh.visible) continue;
-      particle.life -= delta;
-      particle.velocity.y -= 8.5 * delta;
-      particle.mesh.position.addScaledVector(particle.velocity, delta);
-      particle.mesh.rotation.x += particle.spin.x * delta;
-      particle.mesh.rotation.y += particle.spin.y * delta;
-      particle.mesh.rotation.z += particle.spin.z * delta;
-      if (particle.life <= 0) particle.mesh.visible = false;
-    }
-    for (const particle of this.dustPool) {
-      if (!particle.mesh.visible) continue;
-      particle.life -= delta;
-      particle.mesh.position.addScaledVector(particle.velocity, delta);
-      particle.mesh.scale.multiplyScalar(1 + delta * 1.8);
-      this.dustMaterial.opacity = Math.max(0.04, 0.42 * (particle.life / particle.maxLife));
-      if (particle.life <= 0) particle.mesh.visible = false;
-    }
-  }
-
   private updatePlayerAnimation(now: number): void {
     this.playerBody.scale.set(1, 1, 1);
     this.leftArm.position.set(-0.27, 0.72, 0.18);
@@ -520,70 +427,6 @@ export class VoxelDemo {
     this.playerBody.position.z = 0;
   }
 
-  private playPunchSound(hit: boolean): void {
-    if (typeof window === "undefined") return;
-    const AudioCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtor) return;
-    const context = this.audioContext ?? new AudioCtor();
-    this.audioContext = context;
-    if (context.state === "suspended") void context.resume();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    const start = context.currentTime;
-    oscillator.type = hit ? "square" : "triangle";
-    oscillator.frequency.setValueAtTime(hit ? 150 : 90, start);
-    oscillator.frequency.exponentialRampToValueAtTime(hit ? 70 : 55, start + 0.09);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(hit ? 0.08 : 0.035, start + 0.008);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.12);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(start);
-    oscillator.stop(start + 0.14);
-  }
-
-  private playGroundPoundSound(): void {
-    if (typeof window === "undefined") return;
-    const AudioCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtor) return;
-    const context = this.audioContext ?? new AudioCtor();
-    this.audioContext = context;
-    if (context.state === "suspended") void context.resume();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    const start = context.currentTime;
-    oscillator.type = "sawtooth";
-    oscillator.frequency.setValueAtTime(105, start);
-    oscillator.frequency.exponentialRampToValueAtTime(34, start + 0.24);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.13, start + 0.012);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.28);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(start);
-    oscillator.stop(start + 0.3);
-  }
-
-  private playExplosionSound(): void {
-    if (typeof window === "undefined") return;
-    const AudioCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtor) return;
-    const context = this.audioContext ?? new AudioCtor();
-    this.audioContext = context;
-    if (context.state === "suspended") void context.resume();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    const start = context.currentTime;
-    oscillator.type = "sawtooth";
-    oscillator.frequency.setValueAtTime(180, start);
-    oscillator.frequency.exponentialRampToValueAtTime(38, start + 0.22);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.16, start + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.24);
-    oscillator.connect(gain); gain.connect(context.destination);
-    oscillator.start(start); oscillator.stop(start + 0.25);
-  }
-
   reset(): void {
     this.world.reset();
     this.player.position.set(this.world.spawnPoint.x, this.world.spawnPoint.y, this.world.spawnPoint.z);
@@ -597,7 +440,7 @@ export class VoxelDemo {
     this.enemiesDefeatedTotal = 0;
 
     this.hp = GAME_CONFIG.player.maxHp;
-    this.rewardSystem.coins = 0;
+
     this.gameState = "playing";
     this.playerController.snapToGround(true);
     this.enemyManager.reset();
@@ -640,15 +483,8 @@ export class VoxelDemo {
     this.player.visible = true;
     this.updatePlayerAnimation(now);
     this.updateCamera(delta);
-    this.updateEffects(delta);
-    if (this.impactRing.visible) {
-      const age = (performance.now() - this.impactStartedAt) / 260;
-      const material = this.impactRing.material as THREE.MeshBasicMaterial;
-      this.impactRing.scale.setScalar(this.impactRing.scale.x + delta * 4);
-      material.opacity = Math.max(0, 0.9 - age * 1.2);
-      if (material.opacity <= 0) this.impactRing.visible = false;
-    }
-    if (now >= this.hitStopUntil) this.renderer.render(this.scene, this.camera);
+    this.effectManager.update(delta, now);
+    if (!this.effectManager.isHitStopped(now)) this.renderer.render(this.scene, this.camera);
     this.statsTimer += delta;
     if (this.statsTimer >= 0.25) {
       this.statsTimer = 0;
@@ -695,16 +531,11 @@ export class VoxelDemo {
     this.world.dispose();
     this.playerBody.geometry.dispose();
     (this.playerBody.material as THREE.Material).dispose();
-    this.impactRing.geometry.dispose();
-    (this.impactRing.material as THREE.Material).dispose();
-    this.debrisGeometry.dispose();
-    this.dustGeometry.dispose();
+    this.effectManager.dispose();
+    this.audioManager.dispose();
     this.handGeometry.dispose();
     this.armGeometry.dispose();
     this.handMaterial.dispose();
-    this.debrisMaterial.dispose();
-    this.debrisRockMaterial.dispose();
-    this.dustMaterial.dispose();
     this.enemyManager.dispose();
     this.itemManager.dispose();
 
