@@ -5,6 +5,7 @@ import type { StageSource } from "../stages/StageSource";
 import { VoxelPlayerCollision } from "../player/VoxelPlayerCollision";
 import { PlayerController } from "../player/PlayerController";
 import { PlayerCombat } from "../combat/PlayerCombat";
+import { DestructionSystem } from "../destruction/DestructionSystem";
 
 export interface DemoStats {
   fps: number;
@@ -126,6 +127,7 @@ export class VoxelDemo {
   private playerCollision: VoxelPlayerCollision;
   private readonly playerController: PlayerController;
   private readonly playerCombat: PlayerCombat;
+  private readonly destructionSystem: DestructionSystem;
 
   constructor(mount: HTMLElement, onStats: (stats: DemoStats) => void, source?: StageSource) {
     this.mount = mount;
@@ -144,6 +146,7 @@ export class VoxelDemo {
     sun.position.set(-12, 25, 24);
     this.scene.add(sun);
     this.world = new VoxelWorld(source);
+    this.destructionSystem = new DestructionSystem(this.world);
     this.playerCollision = this.createPlayerCollision();
     this.playerController = new PlayerController(this.player, this.world, this.playerCollision, {
       onMessage: (message) => { this.lastMessage = message; },
@@ -336,36 +339,24 @@ export class VoxelDemo {
   }
 
   private handleTerrainPunch(point: THREE.Vector3, now: number): void {
-    const result = this.world.destroySphere(point, GAME_CONFIG.destruction.punchRadius);
-    this.destroyedTotal += result.destroyed;
-    const blast = this.processOreExplosions(result.orePoints, now);
-    const comboText = this.registerCombo(result.destroyed, result.oreDestroyed, now);
+    const result = this.destructionSystem.damageArea({
+      center: point,
+      radius: GAME_CONFIG.destruction.punchRadius,
+      maxVoxels: GAME_CONFIG.destruction.maxPunchVoxels,
+      source: "punch",
+    });
+    this.destroyedTotal += result.destroyedCount;
+    const blast = this.processOreExplosions(result.explosionPoints, now);
+    const comboText = this.registerCombo(result.destroyedCount, result.oreDestroyed, now);
     this.hitStopUntil = now + GAME_CONFIG.destruction.hitStop * 1000;
-    this.shakeUntil = now + (result.destroyed > 0 ? 180 : 90);
-    this.shakeStrength = result.destroyed > 0 ? 0.12 : 0.045;
-    this.showImpact(point, result.destroyed > 0);
-    this.spawnDestructionEffects(point, result.destroyed);
-    this.playPunchSound(result.destroyed > 0);
-    this.lastMessage = result.destroyed > 0
-      ? `パンチ命中 · ${result.destroyed + blast.destroyed}ブロック破壊${blast.enemies > 0 ? ` · 敵${blast.enemies}体に爆発命中` : ""}${result.oreDestroyed > 0 ? ` · 鉱石+${result.oreDestroyed * 25}G` : ""}${comboText}`
+    this.shakeUntil = now + (result.destroyedCount > 0 ? 180 : 90);
+    this.shakeStrength = result.destroyedCount > 0 ? 0.12 : 0.045;
+    this.showImpact(point, result.destroyedCount > 0);
+    this.spawnDestructionEffects(point, result.destroyedCount);
+    this.playPunchSound(result.destroyedCount > 0);
+    this.lastMessage = result.destroyedCount > 0
+      ? `パンチ命中 · ${result.destroyedCount + blast.destroyed}ブロック破壊${blast.enemies > 0 ? ` · 敵${blast.enemies}体に爆発命中` : ""}${result.oreDestroyed > 0 ? ` · 鉱石+${result.oreDestroyed * 25}G` : ""}${comboText}`
       : result.bedrockHit ? "硬い岩盤だ。パンチが弾かれた" : "パンチ命中 · もう一度叩こう";
-  }
-
-  private findEnemyInFront(direction: THREE.Vector3): EnemyState | null {
-    let targetEnemy: EnemyState | null = null;
-    let nearest = Number.POSITIVE_INFINITY;
-    for (const enemy of this.enemyPool) {
-      if (!enemy.mesh.visible) continue;
-      const toEnemy = enemy.mesh.position.clone().sub(this.player.position);
-      const distance = toEnemy.length();
-      const along = direction.dot(toEnemy);
-      const lateralSq = Math.max(0, distance * distance - along * along);
-      // 見た目の拳幅を含めた判定。中心を正確に狙わなくても当たる。
-      if (along < 0 || along > GAME_CONFIG.destruction.punchRange + 0.6 || lateralSq > 1.25 * 1.25 || distance >= nearest) continue;
-      nearest = distance;
-      targetEnemy = enemy;
-    }
-    return targetEnemy;
   }
 
   private damageEnemy(enemy: EnemyState, hitPoint: THREE.Vector3): void {
@@ -416,17 +407,22 @@ export class VoxelDemo {
     let destroyed = 0;
     let enemies = 0;
     for (const point of points) {
-      const result = this.world.destroySphere(point, GAME_CONFIG.destruction.blastRadius, GAME_CONFIG.destruction.maxBlastVoxels);
-      destroyed += result.destroyed;
-      this.destroyedTotal += result.destroyed;
-      const comboText = this.registerCombo(result.destroyed, result.oreDestroyed, now);
+      const result = this.destructionSystem.damageArea({
+        center: point,
+        radius: GAME_CONFIG.destruction.blastRadius,
+        maxVoxels: GAME_CONFIG.destruction.maxBlastVoxels,
+        source: "explosion",
+      });
+      destroyed += result.destroyedCount;
+      this.destroyedTotal += result.destroyedCount;
+      const comboText = this.registerCombo(result.destroyedCount, result.oreDestroyed, now);
       for (const enemy of this.enemyPool) {
         if (!enemy.mesh.visible || enemy.mesh.position.distanceTo(point) > GAME_CONFIG.destruction.blastRadius + 0.7) continue;
         this.damageEnemy(enemy, point);
         enemies += 1;
       }
       this.showImpact(point, true);
-      this.spawnDestructionEffects(point, result.destroyed + 4, 2.4);
+      this.spawnDestructionEffects(point, result.destroyedCount + 4, 2.4);
       this.playExplosionSound();
       if (comboText) this.lastMessage = `爆発連鎖${comboText}`;
     }
@@ -507,10 +503,15 @@ export class VoxelDemo {
   private finishGroundPound(): void {
     this.playerCombat.finishGroundPound();
     this.playerController.endGroundPound();
-        const point = new THREE.Vector3(this.player.position.x, this.player.position.y - 0.72, this.player.position.z);
-    const result = this.world.destroySphere(point, GAME_CONFIG.destruction.groundPoundRadius, GAME_CONFIG.destruction.maxGroundPoundVoxels);
-    this.destroyedTotal += result.destroyed;
-    const blast = this.processOreExplosions(result.orePoints, performance.now());
+    const point = new THREE.Vector3(this.player.position.x, this.player.position.y - 0.72, this.player.position.z);
+    const result = this.destructionSystem.damageArea({
+      center: point,
+      radius: GAME_CONFIG.destruction.groundPoundRadius,
+      maxVoxels: GAME_CONFIG.destruction.maxGroundPoundVoxels,
+      source: "ground-pound",
+    });
+    this.destroyedTotal += result.destroyedCount;
+    const blast = this.processOreExplosions(result.explosionPoints, performance.now());
     let enemiesHit = 0;
     for (const enemy of this.enemyPool) {
       if (!enemy.mesh.visible || enemy.mesh.position.distanceTo(point) > GAME_CONFIG.destruction.groundPoundRadius + 0.35) continue;
@@ -525,12 +526,12 @@ export class VoxelDemo {
     const now = performance.now();
     this.hitStopUntil = now + 80;
     this.shakeUntil = now + 300;
-    this.shakeStrength = result.destroyed > 0 ? 0.28 : 0.12;
+    this.shakeStrength = result.destroyedCount > 0 ? 0.28 : 0.12;
     this.showImpact(point, true);
-    this.spawnDestructionEffects(point, result.destroyed, 2.2);
+    this.spawnDestructionEffects(point, result.destroyedCount, 2.2);
     this.playGroundPoundSound();
-    this.lastMessage = result.destroyed > 0 || enemiesHit > 0 || blast.destroyed > 0
-      ? `地面叩き · ${result.destroyed + blast.destroyed}ブロック破壊${enemiesHit + blast.enemies > 0 ? ` · 敵${enemiesHit + blast.enemies}体に命中` : ""}`
+    this.lastMessage = result.destroyedCount > 0 || enemiesHit > 0 || blast.destroyed > 0
+      ? `地面叩き · ${result.destroyedCount + blast.destroyed}ブロック破壊${enemiesHit + blast.enemies > 0 ? ` · 敵${enemiesHit + blast.enemies}体に命中` : ""}`
       : result.bedrockHit ? "地面叩き · 岩盤に阻まれた" : "地面叩き · 着地の衝撃だけが響いた";
   }
 
@@ -854,6 +855,7 @@ export class VoxelDemo {
     this.playerCollision = this.createPlayerCollision();
     this.playerController.setWorld(this.world, this.playerCollision);
     this.playerCombat.setWorld(this.world);
+    this.destructionSystem.setWorld(this.world);
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
     this.reset();
