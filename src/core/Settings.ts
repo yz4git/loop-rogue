@@ -83,5 +83,7 @@ export const GAME_CONFIG = {
     minPitch: -0.30,
     maxPitch: 0.80,
     defaultPitch: 0.28,
+    groundPoundCameraLift: 0.16,
+    groundPoundCameraDistance: 0.5,
   },
 } as const;
