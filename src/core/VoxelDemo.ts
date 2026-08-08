@@ -8,6 +8,7 @@ import { PlayerCombat } from "../combat/PlayerCombat";
 import { DestructionSystem } from "../destruction/DestructionSystem";
 import { InputManager } from "../input/InputManager";
 import { CameraController } from "../camera/CameraController";
+import { EnemyManager, type EnemyDamageResult } from "../enemies/EnemyManager";
 
 export interface DemoStats {
   fps: number;
@@ -45,14 +46,6 @@ interface EffectParticle {
   spin: THREE.Vector3;
 }
 
-interface EnemyState {
-  mesh: THREE.Mesh;
-  hp: number;
-  hitCooldown: number;
-  phase: number;
-  type: "chaser" | "zigzag";
-}
-
 interface CoinState {
   mesh: THREE.Mesh;
   active: boolean;
@@ -77,14 +70,9 @@ export class VoxelDemo {
   private readonly armGeometry = new THREE.CapsuleGeometry(0.085, 0.34, 4, 6);
   private readonly handMaterial = new THREE.MeshLambertMaterial({ color: 0x68e2d1 });
   private readonly nextPosition = new THREE.Vector3();
-  private readonly enemyDirection = new THREE.Vector3();
-  private readonly enemyAlternate = new THREE.Vector3();
   private readonly impactRing: THREE.Mesh;
-  private readonly enemyPool: EnemyState[] = [];
   private readonly coinPool: CoinState[] = [];
   private readonly rewardCoinPoints = [new THREE.Vector3(14.5, 9.7, 21.5), new THREE.Vector3(17.5, 9.7, 23.5)];
-  private readonly enemyGeometry = new THREE.IcosahedronGeometry(0.42, 1);
-  private readonly enemyMaterial = new THREE.MeshLambertMaterial({ color: 0xc95d72 });
   private readonly coinGeometry = new THREE.TorusGeometry(0.2, 0.07, 6, 12);
   private readonly coinMaterial = new THREE.MeshBasicMaterial({ color: 0xffd166 });
   private readonly goalMesh: THREE.Mesh;
@@ -112,6 +100,7 @@ export class VoxelDemo {
   private movementInputActive = false;
   private playerCollision: VoxelPlayerCollision;
   private readonly cameraController: CameraController;
+  private readonly enemyManager: EnemyManager;
   private readonly playerController: PlayerController;
   private readonly playerCombat: PlayerCombat;
   private readonly destructionSystem: DestructionSystem;
@@ -136,13 +125,19 @@ export class VoxelDemo {
     this.world = new VoxelWorld(source);
     this.cameraController = new CameraController(this.camera, this.world);
     this.destructionSystem = new DestructionSystem(this.world);
+    this.enemyManager = new EnemyManager(this.scene, this.world, {
+      onPlayerContact: (source) => this.damagePlayer(source),
+      onEnemyDamaged: (result) => this.handleEnemyDamage(result),
+    });
     this.playerCollision = this.createPlayerCollision();
     this.playerController = new PlayerController(this.player, this.world, this.playerCollision, {
       onMessage: (message) => { this.lastMessage = message; },
       onGroundPoundLanded: () => this.finishGroundPound(),
     });
-    this.playerCombat = new PlayerCombat(this.player, this.world, this.raycaster, this.enemyPool, {
-      onEnemyHit: (enemy, hitPoint) => this.damageEnemy(enemy as EnemyState, hitPoint),
+    this.playerCombat = new PlayerCombat(this.player, this.world, this.raycaster, this.enemyManager.enemies, {
+      onEnemyHit: (enemy, hitPoint) => {
+        this.enemyManager.damage(enemy, this.player.position, hitPoint);
+      },
       onTerrainHit: (point, now) => this.handleTerrainPunch(point, now),
       onGroundPoundStart: () => this.playerController.beginGroundPound(),
       onMessage: (message) => { this.lastMessage = message; },
@@ -269,15 +264,6 @@ export class VoxelDemo {
   }
 
   private createGameplayPools(): void {
-    const spawnPoints = this.getEnemySpawnPoints();
-    const activeCount = this.getEnemyActiveCount();
-    for (let index = 0; index < GAME_CONFIG.enemies.maxActive; index += 1) {
-      const mesh = new THREE.Mesh(this.enemyGeometry, this.enemyMaterial);
-      mesh.position.copy(spawnPoints[index] ?? spawnPoints[0]);
-      mesh.visible = index < activeCount;
-      this.scene.add(mesh);
-      this.enemyPool.push({ mesh, hp: GAME_CONFIG.enemies.hp, hitCooldown: 0, phase: index * 1.7, type: index % 2 === 0 ? "chaser" : "zigzag" });
-    }
     for (let index = 0; index < GAME_CONFIG.items.maxCoins; index += 1) {
       const mesh = new THREE.Mesh(this.coinGeometry, this.coinMaterial);
       mesh.visible = false;
@@ -291,24 +277,6 @@ export class VoxelDemo {
       coin.mesh.visible = true;
       coin.mesh.position.copy(point);
     });
-  }
-
-  private getEnemySpawnPoints(): THREE.Vector3[] {
-    const generated = this.world.metadata?.enemySpawns;
-    if (generated && generated.length > 0) return generated.map((point) => new THREE.Vector3(point.x, point.y, point.z));
-    const spawn = this.world.spawnPoint;
-    const maxZ = this.world.depth - 3.5;
-    return [
-      new THREE.Vector3(spawn.x - 1, spawn.y, Math.min(maxZ, spawn.z + 7)),
-      new THREE.Vector3(spawn.x + 1, spawn.y, Math.min(maxZ, spawn.z + 12)),
-      new THREE.Vector3(spawn.x - 1, spawn.y, Math.min(maxZ, spawn.z + 18)),
-      new THREE.Vector3(spawn.x + 1, spawn.y, Math.min(maxZ, spawn.z + 24)),
-    ];
-  }
-
-  private getEnemyActiveCount(): number {
-    if (this.world.metadata?.difficulty === "easy") return Math.min(2, GAME_CONFIG.enemies.maxActive);
-    return GAME_CONFIG.enemies.maxActive;
   }
 
   private getRewardCoinPoints(): THREE.Vector3[] {
@@ -355,28 +323,20 @@ export class VoxelDemo {
       : result.bedrockHit ? "硬い岩盤だ。パンチが弾かれた" : "パンチ命中 · もう一度叩こう";
   }
 
-  private damageEnemy(enemy: EnemyState, hitPoint: THREE.Vector3): void {
+  private handleEnemyDamage(result: EnemyDamageResult): void {
     const now = performance.now();
-    enemy.hp -= 1;
     this.hitStopUntil = now + GAME_CONFIG.destruction.hitStop * 1000;
     this.cameraController.addShake(150, 0.1);
-    this.showImpact(hitPoint, true);
-    const knockback = enemy.mesh.position.clone().sub(this.player.position);
-    knockback.y = 0;
-    if (knockback.lengthSq() > 0.001) {
-      const pushed = this.nextPosition.copy(enemy.mesh.position).addScaledVector(knockback.normalize(), GAME_CONFIG.enemies.knockback);
-      if (!this.world.collidesAabb(pushed, 0.32, 0.8)) enemy.mesh.position.copy(pushed);
-    }
-    this.spawnDestructionEffects(enemy.mesh.position, enemy.hp <= 0 ? 4 : 2);
+    this.showImpact(result.hitPoint, true);
+    this.spawnDestructionEffects(result.position, result.defeated ? 4 : 2);
     this.playPunchSound(true);
-    if (enemy.hp <= 0) {
-      enemy.mesh.visible = false;
-      this.spawnCoin(enemy.mesh.position);
+    if (result.defeated) {
+      this.spawnCoin(result.position);
       this.enemiesDefeatedTotal += 1;
       const comboText = this.registerCombo(1, 0, now);
       this.lastMessage = `敵を撃破 · コインを落とした${comboText}`;
     } else {
-      this.lastMessage = `敵に命中 · 残りHP ${enemy.hp}`;
+      this.lastMessage = `敵に命中 · 残りHP ${result.enemy.hp}`;
     }
   }
 
@@ -411,11 +371,11 @@ export class VoxelDemo {
       destroyed += result.destroyedCount;
       this.destroyedTotal += result.destroyedCount;
       const comboText = this.registerCombo(result.destroyedCount, result.oreDestroyed, now);
-      for (const enemy of this.enemyPool) {
-        if (!enemy.mesh.visible || enemy.mesh.position.distanceTo(point) > GAME_CONFIG.destruction.blastRadius + 0.7) continue;
-        this.damageEnemy(enemy, point);
-        enemies += 1;
-      }
+      enemies += this.enemyManager.damageNearby(
+        point,
+        GAME_CONFIG.destruction.blastRadius + 0.7,
+        this.player.position,
+      ).length;
       this.showImpact(point, true);
       this.spawnDestructionEffects(point, result.destroyedCount + 4, 2.4);
       this.playExplosionSound();
@@ -449,17 +409,11 @@ export class VoxelDemo {
     });
     this.destroyedTotal += result.destroyedCount;
     const blast = this.processOreExplosions(result.explosionPoints, performance.now());
-    let enemiesHit = 0;
-    for (const enemy of this.enemyPool) {
-      if (!enemy.mesh.visible || enemy.mesh.position.distanceTo(point) > GAME_CONFIG.destruction.groundPoundRadius + 0.35) continue;
-      enemiesHit += 1;
-      enemy.hp -= 1;
-      this.spawnDestructionEffects(enemy.mesh.position, enemy.hp <= 0 ? 4 : 2, 1.2);
-      if (enemy.hp <= 0) {
-        enemy.mesh.visible = false;
-        this.spawnCoin(enemy.mesh.position);
-      }
-    }
+    const enemiesHit = this.enemyManager.damageNearby(
+      point,
+      GAME_CONFIG.destruction.groundPoundRadius + 0.35,
+      this.player.position,
+    ).length;
     const now = performance.now();
     this.hitStopUntil = now + 80;
     this.cameraController.addShake(300, result.destroyedCount > 0 ? 0.28 : 0.12);
@@ -469,44 +423,6 @@ export class VoxelDemo {
     this.lastMessage = result.destroyedCount > 0 || enemiesHit > 0 || blast.destroyed > 0
       ? `地面叩き · ${result.destroyedCount + blast.destroyed}ブロック破壊${enemiesHit + blast.enemies > 0 ? ` · 敵${enemiesHit + blast.enemies}体に命中` : ""}`
       : result.bedrockHit ? "地面叩き · 岩盤に阻まれた" : "地面叩き · 着地の衝撃だけが響いた";
-  }
-
-  private updateEnemies(delta: number): void {
-    if (this.gameState !== "playing") return;
-    for (const enemy of this.enemyPool) {
-      if (!enemy.mesh.visible) continue;
-      enemy.hitCooldown = Math.max(0, enemy.hitCooldown - delta);
-      const toPlayer = this.enemyDirection.copy(this.player.position).sub(enemy.mesh.position);
-      toPlayer.y = 0;
-      const distance = toPlayer.length();
-      if (distance <= GAME_CONFIG.enemies.contactRange) {
-        if (enemy.hitCooldown <= 0) {
-          enemy.hitCooldown = GAME_CONFIG.enemies.contactCooldown;
-          this.damagePlayer(enemy.mesh.position);
-        }
-        continue;
-      }
-      if (distance < 0.01) continue;
-      toPlayer.normalize();
-      const amount = GAME_CONFIG.enemies.moveSpeed * delta;
-      const next = this.nextPosition.copy(enemy.mesh.position);
-      if (enemy.type === "zigzag") {
-        const weave = Math.sin(performance.now() * 0.003 + enemy.phase) * amount * 2.2;
-        next.x += -toPlayer.z * weave;
-        next.z += toPlayer.x * weave;
-      }
-      next.addScaledVector(toPlayer, amount);
-      if (!this.world.collidesAabb(next, 0.32, 0.8)) {
-        enemy.mesh.position.copy(next);
-      } else {
-        const alternate = this.enemyAlternate.copy(enemy.mesh.position);
-        alternate.x -= toPlayer.z * amount;
-        alternate.z += toPlayer.x * amount;
-        if (!this.world.collidesAabb(alternate, 0.32, 0.8)) enemy.mesh.position.copy(alternate);
-      }
-      enemy.mesh.rotation.y += delta * 2.2;
-      // 敵はプレイヤーのY座標を参照しない。接触でプレイヤーを持ち上げない。
-    }
   }
 
   private damagePlayer(source: THREE.Vector3): void {
@@ -740,13 +656,7 @@ export class VoxelDemo {
     this.coins = 0;
     this.gameState = "playing";
     this.playerController.snapToGround(true);
-    const spawnPoints = this.getEnemySpawnPoints();
-    this.enemyPool.forEach((enemy, index) => {
-      enemy.mesh.position.copy(spawnPoints[index] ?? spawnPoints[0]);
-      enemy.mesh.visible = index < this.getEnemyActiveCount();
-      enemy.hp = GAME_CONFIG.enemies.hp;
-      enemy.hitCooldown = 0;
-    });
+    this.enemyManager.reset();
     this.coinPool.forEach((coin) => { coin.active = false; coin.mesh.visible = false; });
     this.getRewardCoinPoints().forEach((point, index) => {
       const coin = this.coinPool[index];
@@ -767,6 +677,7 @@ export class VoxelDemo {
     this.playerCombat.setWorld(this.world);
     this.destructionSystem.setWorld(this.world);
     this.cameraController.setWorld(this.world);
+    this.enemyManager.setWorld(this.world);
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
     this.reset();
@@ -784,7 +695,7 @@ export class VoxelDemo {
     const now = performance.now();
     this.world.processRebuildQueue();
     this.movePlayer(delta);
-    this.updateEnemies(delta);
+    if (this.gameState === "playing") this.enemyManager.update(delta, this.player);
     this.updateCoins(delta);
     this.updateGoal(delta);
     this.player.visible = true;
@@ -816,7 +727,7 @@ export class VoxelDemo {
         velocityY: Math.round(this.playerController.velocityY * 100) / 100,
         hp: this.hp,
         maxHp: GAME_CONFIG.player.maxHp,
-        enemies: this.enemyPool.filter((enemy) => enemy.mesh.visible).length,
+        enemies: this.enemyManager.activeCount,
         coins: this.coins,
         status: this.gameState,
         lastMessage: this.lastMessage,
@@ -855,8 +766,7 @@ export class VoxelDemo {
     this.debrisMaterial.dispose();
     this.debrisRockMaterial.dispose();
     this.dustMaterial.dispose();
-    this.enemyGeometry.dispose();
-    this.enemyMaterial.dispose();
+    this.enemyManager.dispose();
     this.coinGeometry.dispose();
     this.coinMaterial.dispose();
     this.goalMesh.geometry.dispose();
