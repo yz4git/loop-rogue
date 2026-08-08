@@ -61,7 +61,7 @@ test("破壊は周辺ボクセルだけを変更し、再生成キューを作�
   world.processRebuildQueue(100);
   const result = damage(world, new THREE.Vector3(10.5, 10.5, 10.5), 1.7);
   assert.ok(result.damagedVoxels > 0);
-  assert.ok(result.destroyed > 0);
+  assert.ok(result.destroyedCount > 0);
   assert.ok(result.dirtyChunks >= 1);
   assert.ok(result.dirtyChunks <= 8);
   world.dispose();
