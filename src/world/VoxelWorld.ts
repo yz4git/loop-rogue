@@ -3,6 +3,7 @@ import { GAME_CONFIG } from "../core/Settings";
 import { VOXEL_DEFINITIONS, VoxelType } from "./VoxelDefinitions";
 import { HandcraftedStageSource } from "../stages/HandcraftedStageSource";
 import type { StageMetadata, StagePoint, StageSource } from "../stages/StageSource";
+import { VoxelStorage } from "./VoxelStorage";
 
 type Chunk = {
   key: string;
@@ -42,8 +43,7 @@ export class VoxelWorld {
   readonly goalPoint: StagePoint;
   readonly metadata?: StageMetadata;
   private readonly source: StageSource;
-  private types: Uint8Array;
-  private health: Uint8Array;
+  readonly storage: VoxelStorage;
   private readonly chunks = new Map<string, Chunk>();
   private readonly rebuildQueue: Chunk[] = [];
   private readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -56,8 +56,8 @@ export class VoxelWorld {
     this.width = snapshot.width;
     this.height = snapshot.height;
     this.depth = snapshot.depth;
-    this.types = new Uint8Array(snapshot.types);
-    this.health = new Uint8Array(this.types.length);
+    this.storage = new VoxelStorage(this.width, this.height, this.depth);
+    this.storage.types.set(snapshot.types);
     this.spawnPoint = { ...snapshot.spawn };
     this.goalPoint = { ...snapshot.goal };
     this.metadata = snapshot.metadata;
@@ -67,15 +67,15 @@ export class VoxelWorld {
   }
 
   private index(x: number, y: number, z: number): number {
-    return x + this.width * (y + this.height * z);
+    return this.storage.index(x, y, z);
   }
 
   private inBounds(x: number, y: number, z: number): boolean {
-    return x >= 0 && y >= 0 && z >= 0 && x < this.width && y < this.height && z < this.depth;
+    return this.storage.inBounds(x, y, z);
   }
 
   getType(x: number, y: number, z: number): VoxelType {
-    return this.inBounds(x, y, z) ? this.types[this.index(x, y, z)] as VoxelType : VoxelType.Bedrock;
+    return this.inBounds(x, y, z) ? this.storage.get(x, y, z) as VoxelType : VoxelType.Bedrock;
   }
 
   isSolidAt(x: number, y: number, z: number): boolean {
@@ -139,9 +139,9 @@ export class VoxelWorld {
   }
 
   private rebuildHealth(): void {
-    this.health.fill(0);
-    for (let index = 0; index < this.types.length; index += 1) {
-      this.health[index] = VOXEL_DEFINITIONS[this.types[index] as VoxelType].maxHealth;
+    this.storage.health.fill(0);
+    for (let index = 0; index < this.storage.types.length; index += 1) {
+      this.storage.health[index] = VOXEL_DEFINITIONS[this.storage.types[index] as VoxelType].maxHealth;
     }
   }
 
@@ -260,9 +260,9 @@ export class VoxelWorld {
     for (const candidate of candidates.slice(0, maxVoxels)) {
       const index = this.index(candidate.x, candidate.y, candidate.z);
       damaged += 1;
-      this.health[index] = Math.max(0, this.health[index] - 1);
-      if (this.health[index] === 0) {
-        this.types[index] = VoxelType.Empty;
+      this.storage.health[index] = Math.max(0, this.storage.health[index] - 1);
+      if (this.storage.health[index] === 0) {
+        this.storage.types[index] = VoxelType.Empty;
         destroyed += 1;
         if (candidate.type === VoxelType.Ore) {
           oreDestroyed += 1;
@@ -277,7 +277,7 @@ export class VoxelWorld {
   reset(): void {
     const snapshot = this.source.generate();
     if (snapshot.width !== this.width || snapshot.height !== this.height || snapshot.depth !== this.depth) return;
-    this.types.set(snapshot.types);
+    this.storage.types.set(snapshot.types);
     this.rebuildHealth();
     for (const chunk of this.chunks.values()) this.enqueue(chunk);
   }
