@@ -17,11 +17,11 @@ export class VoxelDemo {
   private readonly onStats: (stats: DemoStats) => void;
   private readonly clock = new THREE.Clock();
   private readonly player = new THREE.Group();
-  private readonly playerBody: THREE.Mesh;
-  private readonly leftHand: THREE.Mesh;
-  private readonly rightHand: THREE.Mesh;
-  private readonly leftArm: THREE.Mesh;
-  private readonly rightArm: THREE.Mesh;
+  private readonly playerBody!: THREE.Mesh;
+  private readonly leftHand!: THREE.Mesh;
+  private readonly rightHand!: THREE.Mesh;
+  private readonly leftArm!: THREE.Mesh;
+  private readonly rightArm!: THREE.Mesh;
   private readonly handGeometry = new THREE.SphereGeometry(0.15, 8, 6);
   private readonly armGeometry = new THREE.CapsuleGeometry(0.085, 0.34, 4, 6);
   private readonly handMaterial = new THREE.MeshLambertMaterial({ color: 0x68e2d1 });
