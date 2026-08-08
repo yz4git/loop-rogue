@@ -9,6 +9,8 @@ import { DestructionSystem } from "../destruction/DestructionSystem";
 import { InputManager } from "../input/InputManager";
 import { CameraController } from "../camera/CameraController";
 import { EnemyManager, type EnemyDamageResult } from "../enemies/EnemyManager";
+import { ItemManager } from "../items/ItemManager";
+import { RewardSystem } from "../rewards/RewardSystem";
 
 export interface DemoStats {
   fps: number;
@@ -46,11 +48,6 @@ interface EffectParticle {
   spin: THREE.Vector3;
 }
 
-interface CoinState {
-  mesh: THREE.Mesh;
-  active: boolean;
-}
-
 export class VoxelDemo {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(52, 1, 0.1, 100);
@@ -71,10 +68,7 @@ export class VoxelDemo {
   private readonly handMaterial = new THREE.MeshLambertMaterial({ color: 0x68e2d1 });
   private readonly nextPosition = new THREE.Vector3();
   private readonly impactRing: THREE.Mesh;
-  private readonly coinPool: CoinState[] = [];
-  private readonly rewardCoinPoints = [new THREE.Vector3(14.5, 9.7, 21.5), new THREE.Vector3(17.5, 9.7, 23.5)];
-  private readonly coinGeometry = new THREE.TorusGeometry(0.2, 0.07, 6, 12);
-  private readonly coinMaterial = new THREE.MeshBasicMaterial({ color: 0xffd166 });
+
   private readonly goalMesh: THREE.Mesh;
   private readonly debrisPool: EffectParticle[] = [];
   private readonly dustPool: EffectParticle[] = [];
@@ -87,20 +81,21 @@ export class VoxelDemo {
   private animationFrame = 0;
   private destroyedTotal = 0;
   private enemiesDefeatedTotal = 0;
-  private combo = 0;
-  private comboExpiresAt = 0;
+
   private lastMessage = "深部へ掘り、敵2体を倒してゴールへ";
   private hitStopUntil = 0;
   private statsTimer = 0;
   // 初期カメラは進行方向の後ろ。入口側を向くため、開始直後に岩壁を映さない。
   private impactStartedAt = 0;
   private hp = GAME_CONFIG.player.maxHp;
-  private coins = 0;
+
   private gameState: "playing" | "cleared" | "gameover" = "playing";
   private movementInputActive = false;
   private playerCollision: VoxelPlayerCollision;
   private readonly cameraController: CameraController;
   private readonly enemyManager: EnemyManager;
+  private readonly itemManager: ItemManager;
+  private readonly rewardSystem: RewardSystem;
   private readonly playerController: PlayerController;
   private readonly playerCombat: PlayerCombat;
   private readonly destructionSystem: DestructionSystem;
@@ -125,6 +120,12 @@ export class VoxelDemo {
     this.world = new VoxelWorld(source);
     this.cameraController = new CameraController(this.camera, this.world);
     this.destructionSystem = new DestructionSystem(this.world);
+    this.rewardSystem = new RewardSystem();
+    this.itemManager = new ItemManager(this.scene, this.world, {
+      onCoinCollected: (value) => {
+        this.lastMessage = this.rewardSystem.collectCoin(value);
+      },
+    });
     this.enemyManager = new EnemyManager(this.scene, this.world, {
       onPlayerContact: (source) => this.damagePlayer(source),
       onEnemyDamaged: (result) => this.handleEnemyDamage(result),
@@ -193,7 +194,6 @@ export class VoxelDemo {
     this.goalMesh.position.set(this.world.goalPoint.x, this.world.goalPoint.y, this.world.goalPoint.z);
     this.goalMesh.rotation.x = Math.PI / 2;
     this.scene.add(this.goalMesh);
-    this.createGameplayPools();
 
     this.inputManager.attach(window, this.renderer.domElement);
     this.renderer.domElement.addEventListener("webglcontextlost", this.handleContextLost, { passive: false });
@@ -263,29 +263,6 @@ export class VoxelDemo {
     }
   }
 
-  private createGameplayPools(): void {
-    for (let index = 0; index < GAME_CONFIG.items.maxCoins; index += 1) {
-      const mesh = new THREE.Mesh(this.coinGeometry, this.coinMaterial);
-      mesh.visible = false;
-      this.scene.add(mesh);
-      this.coinPool.push({ mesh, active: false });
-    }
-    this.getRewardCoinPoints().forEach((point, index) => {
-      const coin = this.coinPool[index];
-      if (!coin) return;
-      coin.active = true;
-      coin.mesh.visible = true;
-      coin.mesh.position.copy(point);
-    });
-  }
-
-  private getRewardCoinPoints(): THREE.Vector3[] {
-    const generated = this.world.metadata?.coinSpawns;
-    return generated && generated.length > 0
-      ? generated.map((point) => new THREE.Vector3(point.x, point.y, point.z))
-      : this.rewardCoinPoints.map((point) => point.clone());
-  }
-
   setMoveInput(x: number, y: number): void {
     this.inputManager.setMoveInput(x, y);
   }
@@ -309,7 +286,7 @@ export class VoxelDemo {
     });
     this.destroyedTotal += result.destroyedCount;
     const blast = this.processOreExplosions(result.explosionPoints, now);
-    const comboText = this.registerCombo(result.destroyedCount, result.oreDestroyed, now);
+    const comboText = this.rewardSystem.recordDestruction(result.destroyedCount, result.oreDestroyed, now);
     this.hitStopUntil = now + GAME_CONFIG.destruction.hitStop * 1000;
     this.cameraController.addShake(
       result.destroyedCount > 0 ? 180 : 90,
@@ -331,31 +308,13 @@ export class VoxelDemo {
     this.spawnDestructionEffects(result.position, result.defeated ? 4 : 2);
     this.playPunchSound(true);
     if (result.defeated) {
-      this.spawnCoin(result.position);
+      this.itemManager.spawn(result.position);
       this.enemiesDefeatedTotal += 1;
-      const comboText = this.registerCombo(1, 0, now);
+      const comboText = this.rewardSystem.recordEnemyDefeat(now);
       this.lastMessage = `敵を撃破 · コインを落とした${comboText}`;
     } else {
       this.lastMessage = `敵に命中 · 残りHP ${result.enemy.hp}`;
     }
-  }
-
-  private spawnCoin(position: THREE.Vector3): void {
-    const coin = this.coinPool.find((candidate) => !candidate.active);
-    if (!coin) return;
-    coin.active = true;
-    coin.mesh.visible = true;
-    coin.mesh.position.copy(position);
-    coin.mesh.position.y += 0.25;
-  }
-
-  private registerCombo(destroyed: number, oreDestroyed: number, now: number): string {
-    if (destroyed <= 0 && oreDestroyed <= 0) return "";
-    this.combo = now <= this.comboExpiresAt ? this.combo + 1 : 1;
-    this.comboExpiresAt = now + 1600;
-    const bonus = Math.max(0, this.combo - 1) * 5;
-    this.coins += oreDestroyed * 25 + bonus;
-    return this.combo >= 2 ? ` · COMBO x${this.combo}${bonus > 0 ? ` +${bonus}G` : ""}` : "";
   }
 
   private processOreExplosions(points: THREE.Vector3[], now: number): { destroyed: number; enemies: number } {
@@ -370,7 +329,7 @@ export class VoxelDemo {
       });
       destroyed += result.destroyedCount;
       this.destroyedTotal += result.destroyedCount;
-      const comboText = this.registerCombo(result.destroyedCount, result.oreDestroyed, now);
+      const comboText = this.rewardSystem.recordDestruction(result.destroyedCount, result.oreDestroyed, now);
       enemies += this.enemyManager.damageNearby(
         point,
         GAME_CONFIG.destruction.blastRadius + 0.7,
@@ -439,20 +398,6 @@ export class VoxelDemo {
     if (this.hp <= 0) this.gameState = "gameover";
   }
 
-  private updateCoins(delta: number): void {
-    for (const coin of this.coinPool) {
-      if (!coin.active) continue;
-      coin.mesh.rotation.y += delta * 4.5;
-      coin.mesh.position.y += Math.sin(performance.now() * 0.005 + coin.mesh.position.x) * delta * 0.12;
-      if (coin.mesh.position.distanceTo(this.player.position) <= GAME_CONFIG.items.pickupRange) {
-        coin.active = false;
-        coin.mesh.visible = false;
-        this.coins += GAME_CONFIG.items.coinValue;
-        this.lastMessage = `コイン取得 · ${this.coins}G`;
-      }
-    }
-  }
-
   private updateGoal(delta: number): void {
     this.goalMesh.rotation.z += delta * 1.4;
     this.goalMesh.position.y = this.world.goalPoint.y + Math.sin(performance.now() * 0.003) * 0.12;
@@ -466,7 +411,7 @@ export class VoxelDemo {
     if (this.gameState === "playing" && this.player.position.distanceTo(this.goalMesh.position) <= GAME_CONFIG.goal.pickupRange) {
       if (goalReady) {
         this.gameState = "cleared";
-        this.lastMessage = `地下ゴール到達 · ${this.coins}G獲得`;
+        this.lastMessage = `地下ゴール到達 · ${this.rewardSystem.coins}G獲得`;
       } else {
         this.lastMessage = `ゴール封鎖 · 深度 ${Math.floor(depthProgress)}/${GAME_CONFIG.goal.requiredDepth} · 破壊 ${this.destroyedTotal}/${GAME_CONFIG.goal.requiredDestroyed} · 撃破 ${this.enemiesDefeatedTotal}/${GAME_CONFIG.goal.requiredEnemiesDefeated}`;
       }
@@ -650,21 +595,14 @@ export class VoxelDemo {
     this.movementInputActive = false;
     this.destroyedTotal = 0;
     this.enemiesDefeatedTotal = 0;
-    this.combo = 0;
-    this.comboExpiresAt = 0;
+
     this.hp = GAME_CONFIG.player.maxHp;
-    this.coins = 0;
+    this.rewardSystem.coins = 0;
     this.gameState = "playing";
     this.playerController.snapToGround(true);
     this.enemyManager.reset();
-    this.coinPool.forEach((coin) => { coin.active = false; coin.mesh.visible = false; });
-    this.getRewardCoinPoints().forEach((point, index) => {
-      const coin = this.coinPool[index];
-      if (!coin) return;
-      coin.active = true;
-      coin.mesh.visible = true;
-      coin.mesh.position.copy(point);
-    });
+    this.rewardSystem.reset();
+    this.itemManager.reset();
     this.lastMessage = "深部へ掘り、敵2体を倒してゴールへ";
   }
 
@@ -678,6 +616,7 @@ export class VoxelDemo {
     this.destructionSystem.setWorld(this.world);
     this.cameraController.setWorld(this.world);
     this.enemyManager.setWorld(this.world);
+    this.itemManager.setWorld(this.world);
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
     this.reset();
@@ -696,7 +635,7 @@ export class VoxelDemo {
     this.world.processRebuildQueue();
     this.movePlayer(delta);
     if (this.gameState === "playing") this.enemyManager.update(delta, this.player);
-    this.updateCoins(delta);
+    this.itemManager.update(delta, this.player);
     this.updateGoal(delta);
     this.player.visible = true;
     this.updatePlayerAnimation(now);
@@ -728,7 +667,7 @@ export class VoxelDemo {
         hp: this.hp,
         maxHp: GAME_CONFIG.player.maxHp,
         enemies: this.enemyManager.activeCount,
-        coins: this.coins,
+        coins: this.rewardSystem.coins,
         status: this.gameState,
         lastMessage: this.lastMessage,
         stageMode: this.world.metadata?.seed ? "procedural" : "handcrafted",
@@ -767,8 +706,8 @@ export class VoxelDemo {
     this.debrisRockMaterial.dispose();
     this.dustMaterial.dispose();
     this.enemyManager.dispose();
-    this.coinGeometry.dispose();
-    this.coinMaterial.dispose();
+    this.itemManager.dispose();
+
     this.goalMesh.geometry.dispose();
     (this.goalMesh.material as THREE.Material).dispose();
     this.renderer.dispose();
