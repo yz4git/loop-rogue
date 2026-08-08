@@ -4,6 +4,7 @@ import { VoxelWorld } from "../world/VoxelWorld";
 import type { StageSource } from "../stages/StageSource";
 import { VoxelPlayerCollision } from "../player/VoxelPlayerCollision";
 import { PlayerController } from "../player/PlayerController";
+import { PlayerCombat } from "../combat/PlayerCombat";
 
 export interface DemoStats {
   fps: number;
@@ -113,9 +114,6 @@ export class VoxelDemo {
   private cameraPointerId: number | null = null;
   private cameraPointerX = 0;
   private cameraPointerY = 0;
-  private punchReadyAt = 0;
-  private punchUntil = 0;
-  private groundPoundReadyAt = 0;
   private shakeUntil = 0;
   private shakeStrength = 0;
   private impactStartedAt = 0;
@@ -127,6 +125,7 @@ export class VoxelDemo {
   private behindCameraTransition = 0;
   private playerCollision: VoxelPlayerCollision;
   private readonly playerController: PlayerController;
+  private readonly playerCombat: PlayerCombat;
 
   constructor(mount: HTMLElement, onStats: (stats: DemoStats) => void, source?: StageSource) {
     this.mount = mount;
@@ -149,6 +148,14 @@ export class VoxelDemo {
     this.playerController = new PlayerController(this.player, this.world, this.playerCollision, {
       onMessage: (message) => { this.lastMessage = message; },
       onGroundPoundLanded: () => this.finishGroundPound(),
+    });
+    this.playerCombat = new PlayerCombat(this.player, this.world, this.raycaster, this.enemyPool, {
+      onEnemyHit: (enemy, hitPoint) => this.damageEnemy(enemy as EnemyState, hitPoint),
+      onTerrainHit: (point, now) => this.handleTerrainPunch(point, now),
+      onGroundPoundStart: () => this.playerController.beginGroundPound(),
+      onMessage: (message) => { this.lastMessage = message; },
+      playPunchSound: (hit) => this.playPunchSound(hit),
+      playGroundPoundSound: () => this.playGroundPoundSound(),
     });
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
@@ -324,51 +331,24 @@ export class VoxelDemo {
   }
 
   punch(): void {
-    if (!this.playerController.grounded) {
-      this.startGroundPound();
-      return;
-    }
-    const now = performance.now();
-    if (now < this.punchReadyAt) return;
-    this.punchReadyAt = now + GAME_CONFIG.destruction.punchCooldown * 1000;
-    this.punchUntil = now + 240;
-    const direction = new THREE.Vector3(Math.sin(this.player.rotation.y), 0, Math.cos(this.player.rotation.y));
-    const origin = this.player.position.clone().add(new THREE.Vector3(0, 0.7, 0)).addScaledVector(direction, 0.38);
-    this.raycaster.set(origin, direction);
-    const wallHit = this.world.raycast(this.raycaster).find((intersection) => intersection.distance <= GAME_CONFIG.destruction.punchRange);
-    const enemy = this.findEnemyInFront(direction);
-    if (enemy && !wallHit) {
-      this.damageEnemy(enemy, origin);
-      return;
-    }
-    const first = this.world.raycast(this.raycaster).find((intersection) => intersection.distance <= GAME_CONFIG.destruction.punchRange);
-    if (!first?.point) {
-      this.lastMessage = "パンチ空振り · 岩へ近づいてください";
-      this.playPunchSound(false);
-      return;
-    }
-    const result = this.world.destroySphere(first.point, GAME_CONFIG.destruction.punchRadius);
+    if (this.gameState !== "playing") return;
+    this.playerCombat.punch(this.playerController.grounded);
+  }
+
+  private handleTerrainPunch(point: THREE.Vector3, now: number): void {
+    const result = this.world.destroySphere(point, GAME_CONFIG.destruction.punchRadius);
     this.destroyedTotal += result.destroyed;
     const blast = this.processOreExplosions(result.orePoints, now);
     const comboText = this.registerCombo(result.destroyed, result.oreDestroyed, now);
     this.hitStopUntil = now + GAME_CONFIG.destruction.hitStop * 1000;
     this.shakeUntil = now + (result.destroyed > 0 ? 180 : 90);
     this.shakeStrength = result.destroyed > 0 ? 0.12 : 0.045;
-    this.showImpact(first.point, result.destroyed > 0);
-    this.spawnDestructionEffects(first.point, result.destroyed);
+    this.showImpact(point, result.destroyed > 0);
+    this.spawnDestructionEffects(point, result.destroyed);
     this.playPunchSound(result.destroyed > 0);
     this.lastMessage = result.destroyed > 0
       ? `パンチ命中 · ${result.destroyed + blast.destroyed}ブロック破壊${blast.enemies > 0 ? ` · 敵${blast.enemies}体に爆発命中` : ""}${result.oreDestroyed > 0 ? ` · 鉱石+${result.oreDestroyed * 25}G` : ""}${comboText}`
       : result.bedrockHit ? "硬い岩盤だ。パンチが弾かれた" : "パンチ命中 · もう一度叩こう";
-  }
-
-  private startGroundPound(): void {
-    const now = performance.now();
-    if (this.gameState !== "playing" || this.playerController.groundPoundActive || now < this.groundPoundReadyAt) return;
-    if (!this.playerController.beginGroundPound()) return;
-    this.punchUntil = now + 260;
-    this.lastMessage = "地面叩き · 着地で広範囲破壊";
-    this.playGroundPoundSound();
   }
 
   private findEnemyInFront(direction: THREE.Vector3): EnemyState | null {
@@ -525,9 +505,9 @@ export class VoxelDemo {
   }
 
   private finishGroundPound(): void {
+    this.playerCombat.finishGroundPound();
     this.playerController.endGroundPound();
-    this.groundPoundReadyAt = performance.now() + GAME_CONFIG.destruction.groundPoundCooldown * 1000;
-    const point = new THREE.Vector3(this.player.position.x, this.player.position.y - 0.72, this.player.position.z);
+        const point = new THREE.Vector3(this.player.position.x, this.player.position.y - 0.72, this.player.position.z);
     const result = this.world.destroySphere(point, GAME_CONFIG.destruction.groundPoundRadius, GAME_CONFIG.destruction.maxGroundPoundVoxels);
     this.destroyedTotal += result.destroyed;
     const blast = this.processOreExplosions(result.orePoints, performance.now());
@@ -735,15 +715,15 @@ export class VoxelDemo {
     this.rightArm.position.set(0.27, 0.72, 0.18);
     this.leftHand.position.set(-0.3, 0.68, 0.42);
     this.rightHand.position.set(0.3, 0.68, 0.42);
-    if (this.playerController.groundPoundActive) {
-      const progress = Math.min(1, Math.max(0, (now - (this.punchUntil - 260)) / 260));
+    if (this.playerCombat.isGroundPoundActive) {
+      const progress = Math.min(1, Math.max(0, (now - (this.playerCombat.animationUntil - 260)) / 260));
       this.playerBody.scale.set(1.15 - progress * 0.15, 0.88 + progress * 0.12, 1.15 - progress * 0.15);
       this.playerBody.rotation.x = progress * 0.4;
       this.leftHand.position.y = 0.55;
       this.rightHand.position.y = 0.55;
       return;
     }
-    const remaining = this.punchUntil - now;
+    const remaining = this.playerCombat.animationUntil - now;
     if (remaining > 0) {
       const progress = 1 - remaining / 240;
       const leftSwing = Math.sin(Math.min(1, progress * 2) * Math.PI);
@@ -834,13 +814,13 @@ export class VoxelDemo {
     this.player.position.set(this.world.spawnPoint.x, this.world.spawnPoint.y, this.world.spawnPoint.z);
     this.goalMesh.position.set(this.world.goalPoint.x, this.world.goalPoint.y, this.world.goalPoint.z);
     this.playerController.reset();
+    this.playerCombat.reset();
     this.cameraYaw = Math.PI;
     this.cameraPitch = 0.25;
     this.cameraManuallyControlled = false;
     this.movementInputActive = false;
     this.behindCameraTransition = 0;
-    this.groundPoundReadyAt = 0;
-    this.playerController.reset();
+        this.playerController.reset();
     this.destroyedTotal = 0;
     this.enemiesDefeatedTotal = 0;
     this.combo = 0;
@@ -873,6 +853,7 @@ export class VoxelDemo {
     this.world = new VoxelWorld(source);
     this.playerCollision = this.createPlayerCollision();
     this.playerController.setWorld(this.world, this.playerCollision);
+    this.playerCombat.setWorld(this.world);
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
     this.reset();
