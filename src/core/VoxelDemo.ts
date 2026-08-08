@@ -73,9 +73,6 @@ export class VoxelDemo {
   private readonly handGeometry = new THREE.SphereGeometry(0.15, 8, 6);
   private readonly armGeometry = new THREE.CapsuleGeometry(0.085, 0.34, 4, 6);
   private readonly handMaterial = new THREE.MeshLambertMaterial({ color: 0x68e2d1 });
-  private readonly moveInput = new THREE.Vector2();
-  private readonly velocity = new THREE.Vector3();
-  private readonly desiredMove = new THREE.Vector3();
   private readonly nextPosition = new THREE.Vector3();
   private readonly enemyDirection = new THREE.Vector3();
   private readonly enemyAlternate = new THREE.Vector3();
@@ -116,13 +113,9 @@ export class VoxelDemo {
   private cameraPointerId: number | null = null;
   private cameraPointerX = 0;
   private cameraPointerY = 0;
-  private grounded = false;
   private punchReadyAt = 0;
   private punchUntil = 0;
   private groundPoundReadyAt = 0;
-  private groundPoundActive = false;
-  private jumpBufferedUntil = 0;
-  private coyoteUntil = 0;
   private shakeUntil = 0;
   private shakeStrength = 0;
   private impactStartedAt = 0;
@@ -371,7 +364,7 @@ export class VoxelDemo {
 
   private startGroundPound(): void {
     const now = performance.now();
-    if (this.gameState !== "playing" || this.groundPoundActive || now < this.groundPoundReadyAt) return;
+    if (this.gameState !== "playing" || this.playerController.groundPoundActive || now < this.groundPoundReadyAt) return;
     if (!this.playerController.beginGroundPound()) return;
     this.punchUntil = now + 260;
     this.lastMessage = "地面叩き · 着地で広範囲破壊";
@@ -559,14 +552,6 @@ export class VoxelDemo {
     this.lastMessage = result.destroyed > 0 || enemiesHit > 0 || blast.destroyed > 0
       ? `地面叩き · ${result.destroyed + blast.destroyed}ブロック破壊${enemiesHit + blast.enemies > 0 ? ` · 敵${enemiesHit + blast.enemies}体に命中` : ""}`
       : result.bedrockHit ? "地面叩き · 岩盤に阻まれた" : "地面叩き · 着地の衝撃だけが響いた";
-  }
-
-  private respawn(): void {
-    this.player.position.set(GAME_CONFIG.player.spawn.x, GAME_CONFIG.player.spawn.y, GAME_CONFIG.player.spawn.z);
-    this.velocity.set(0, 0, 0);
-    this.grounded = false;
-    this.playerController.snapToGround(true);
-    this.lastMessage = "落下したため入口へ戻りました";
   }
 
   private updateEnemies(delta: number): void {
@@ -863,7 +848,7 @@ export class VoxelDemo {
     this.hp = GAME_CONFIG.player.maxHp;
     this.coins = 0;
     this.gameState = "playing";
-    this.snapToGround(true);
+    this.playerController.snapToGround(true);
     const spawnPoints = this.getEnemySpawnPoints();
     this.enemyPool.forEach((enemy, index) => {
       enemy.mesh.position.copy(spawnPoints[index] ?? spawnPoints[0]);
@@ -933,8 +918,8 @@ export class VoxelDemo {
         pendingChunks: this.world.pendingRebuilds,
         destroyed: this.destroyedTotal,
         player: `${this.player.position.x.toFixed(1)}, ${this.player.position.y.toFixed(1)}, ${this.player.position.z.toFixed(1)}`,
-        grounded: this.grounded,
-        velocityY: Math.round(this.velocity.y * 100) / 100,
+        grounded: this.playerController.grounded,
+        velocityY: Math.round(this.playerController.velocityY * 100) / 100,
         hp: this.hp,
         maxHp: GAME_CONFIG.player.maxHp,
         enemies: this.enemyPool.filter((enemy) => enemy.mesh.visible).length,
