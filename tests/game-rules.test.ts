@@ -7,6 +7,7 @@ import { VoxelType } from "../src/world/VoxelDefinitions";
 import { ProceduralStageSource, WORLD_GENERATOR_VERSION } from "../src/stages/ProceduralStageSource";
 import { createStageArray, setStageVoxel, type StageSnapshot, type StageSource } from "../src/stages/StageSource";
 import { VoxelPlayerCollision } from "../src/player/VoxelPlayerCollision";
+import { DestructionSystem } from "../src/destruction/DestructionSystem";
 
 class CollisionTestStage implements StageSource {
   readonly id = "collision-test";
@@ -31,6 +32,20 @@ class CollisionTestStage implements StageSource {
     };
   }
 }
+function damage(
+  world: VoxelWorld,
+  center: THREE.Vector3,
+  radius: number,
+  maxVoxels = GAME_CONFIG.destruction.maxPunchVoxels,
+) {
+  return new DestructionSystem(world).damageArea({
+    center,
+    radius,
+    maxVoxels,
+    source: "punch",
+  });
+}
+
 
 test("ボクセルワールドはTypedArrayと16立方体チャンクで構成される", () => {
   const world = new VoxelWorld();
@@ -44,8 +59,8 @@ test("ボクセルワールドはTypedArrayと16立方体チャンクで構成�
 test("破壊は周辺ボクセルだけを変更し、再生成キューを作る", () => {
   const world = new VoxelWorld();
   world.processRebuildQueue(100);
-  const result = world.destroySphere(new THREE.Vector3(10.5, 10.5, 10.5), 1.7);
-  assert.ok(result.damaged > 0);
+  const result = damage(world, new THREE.Vector3(10.5, 10.5, 10.5), 1.7);
+  assert.ok(result.damagedVoxels > 0);
   assert.ok(result.destroyed > 0);
   assert.ok(result.dirtyChunks >= 1);
   assert.ok(result.dirtyChunks <= 8);
@@ -55,7 +70,7 @@ test("破壊は周辺ボクセルだけを変更し、再生成キューを作�
 test("境界の岩盤は壊れず、専用判定を返す", () => {
   const world = new VoxelWorld();
   world.processRebuildQueue(100);
-  const result = world.destroySphere(new THREE.Vector3(0.5, 0.5, 0.5), 1.2);
+  const result = damage(world, new THREE.Vector3(0.5, 0.5, 0.5), 1.2);
   assert.equal(result.bedrockHit, true);
   assert.equal(world.getType(0, 0, 0), VoxelType.Bedrock);
   world.dispose();
@@ -68,13 +83,13 @@ test("地下ゴールは深度と掘削の進行条件を持つ", () => {
   assert.equal(GAME_CONFIG.goal.requiredDestroyed >= 10, true);
   assert.equal(world.getType(24, 10, 34), VoxelType.Empty);
   assert.equal(world.getType(20, 10, 15) !== VoxelType.Empty, true);
-  assert.equal(typeof world.destroySphere(new THREE.Vector3(20.5, 10.5, 15.5), 0.5).oreDestroyed, "number");
+  assert.equal(typeof damage(world, new THREE.Vector3(20.5, 10.5, 15.5), 0.5).oreDestroyed, "number");
   world.dispose();
 });
 
 test("破壊結果は鉱石報酬数を返す", () => {
   const world = new VoxelWorld();
-  const result = world.destroySphere(new THREE.Vector3(24.5, 10.5, 10.5), 1.7);
+  const result = damage(world, new THREE.Vector3(24.5, 10.5, 10.5), 1.7);
   assert.equal(result.oreDestroyed >= 0, true);
   assert.equal(Array.isArray(result.orePoints), true);
   world.dispose();
