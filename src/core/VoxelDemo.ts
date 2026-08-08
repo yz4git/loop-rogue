@@ -14,34 +14,9 @@ import { RewardSystem } from "../rewards/RewardSystem";
 import { EffectManager } from "../effects/EffectManager";
 import { AudioManager } from "../audio/AudioManager";
 import { GameSession } from "../game/GameSession";
+import type { GameViewState } from "../ui/GameViewState";
 
-export interface DemoStats {
-  fps: number;
-  frameMs: number;
-  drawCalls: number;
-  triangles: number;
-  chunks: number;
-  pendingChunks: number;
-  destroyed: number;
-  player: string;
-  grounded: boolean;
-  velocityY: number;
-  hp: number;
-  maxHp: number;
-  enemies: number;
-  coins: number;
-  status: "playing" | "cleared" | "gameover";
-  lastMessage: string;
-  stageMode: "handcrafted" | "procedural";
-  seed: string;
-  generatorVersion: number;
-  generationMs: number;
-  caves: number;
-  structures: number;
-  jigsawPieces: number;
-  reachabilityCost: number;
-  biomeCounts: string;
-}
+export type DemoStats = GameViewState;
 
 export class VoxelDemo {
   readonly scene = new THREE.Scene();
@@ -489,7 +464,12 @@ export class VoxelDemo {
         triangles: info.render.triangles,
         chunks: this.world.chunkCount,
         pendingChunks: this.world.pendingRebuilds,
-        destroyed: this.destroyedTotal,
+        destroyed: this.session.state.destroyed,
+        enemiesDefeated: this.session.state.enemiesDefeated,
+        score: this.session.state.score,
+        combo: this.session.state.combo,
+        elapsedSeconds: this.session.state.elapsedSeconds,
+        gameState: this.session.state.state,
         player: `${this.player.position.x.toFixed(1)}, ${this.player.position.y.toFixed(1)}, ${this.player.position.z.toFixed(1)}`,
         grounded: this.playerController.grounded,
         velocityY: Math.round(this.playerController.velocityY * 100) / 100,
