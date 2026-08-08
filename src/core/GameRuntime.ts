@@ -193,6 +193,7 @@ export class GameRuntime {
       this.player.position,
       this.player.rotation.y,
       this.movementInputActive,
+      this.playerController.groundPoundActive,
       now,
     );
     this.effectManager.update(delta, now);
