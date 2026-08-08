@@ -7,6 +7,7 @@ import { PlayerController } from "../player/PlayerController";
 import { PlayerCombat } from "../combat/PlayerCombat";
 import { DestructionSystem } from "../destruction/DestructionSystem";
 import { InputManager } from "../input/InputManager";
+import { CameraController } from "../camera/CameraController";
 
 export interface DemoStats {
   fps: number;
@@ -78,10 +79,6 @@ export class VoxelDemo {
   private readonly nextPosition = new THREE.Vector3();
   private readonly enemyDirection = new THREE.Vector3();
   private readonly enemyAlternate = new THREE.Vector3();
-  private readonly target = new THREE.Vector3();
-  private readonly desiredCamera = new THREE.Vector3();
-  private readonly cameraDirection = new THREE.Vector3();
-  private readonly cameraRay = new THREE.Raycaster();
   private readonly impactRing: THREE.Mesh;
   private readonly enemyPool: EnemyState[] = [];
   private readonly coinPool: CoinState[] = [];
@@ -108,18 +105,13 @@ export class VoxelDemo {
   private hitStopUntil = 0;
   private statsTimer = 0;
   // 初期カメラは進行方向の後ろ。入口側を向くため、開始直後に岩壁を映さない。
-  private cameraYaw = Math.PI;
-  private cameraPitch = 0.25;
-  private shakeUntil = 0;
-  private shakeStrength = 0;
   private impactStartedAt = 0;
   private hp = GAME_CONFIG.player.maxHp;
   private coins = 0;
   private gameState: "playing" | "cleared" | "gameover" = "playing";
-  private cameraManuallyControlled = false;
   private movementInputActive = false;
-  private behindCameraTransition = 0;
   private playerCollision: VoxelPlayerCollision;
+  private readonly cameraController: CameraController;
   private readonly playerController: PlayerController;
   private readonly playerCombat: PlayerCombat;
   private readonly destructionSystem: DestructionSystem;
@@ -142,6 +134,7 @@ export class VoxelDemo {
     sun.position.set(-12, 25, 24);
     this.scene.add(sun);
     this.world = new VoxelWorld(source);
+    this.cameraController = new CameraController(this.camera, this.world);
     this.destructionSystem = new DestructionSystem(this.world);
     this.playerCollision = this.createPlayerCollision();
     this.playerController = new PlayerController(this.player, this.world, this.playerCollision, {
@@ -159,19 +152,10 @@ export class VoxelDemo {
     this.inputManager = new InputManager({
       onJump: () => this.jump(),
       onPunch: () => this.punch(),
-      onCameraStart: () => {
-        this.cameraManuallyControlled = true;
-        this.behindCameraTransition = 0;
-      },
-      onCameraMove: (deltaX, deltaY) => {
-        this.cameraYaw -= deltaX * GAME_CONFIG.camera.sensitivity;
-        this.cameraPitch = Math.max(
-          GAME_CONFIG.camera.minPitch,
-          Math.min(GAME_CONFIG.camera.maxPitch, this.cameraPitch + deltaY * GAME_CONFIG.camera.sensitivity),
-        );
-      },
+      onCameraStart: () => this.cameraController.beginManual(),
+      onCameraMove: (deltaX, deltaY) => this.cameraController.rotate(deltaX, deltaY),
       onCameraEnd: () => {
-        this.cameraManuallyControlled = false;
+        this.cameraController.endManual();
         this.movementInputActive = false;
       },
     });
@@ -359,8 +343,10 @@ export class VoxelDemo {
     const blast = this.processOreExplosions(result.explosionPoints, now);
     const comboText = this.registerCombo(result.destroyedCount, result.oreDestroyed, now);
     this.hitStopUntil = now + GAME_CONFIG.destruction.hitStop * 1000;
-    this.shakeUntil = now + (result.destroyedCount > 0 ? 180 : 90);
-    this.shakeStrength = result.destroyedCount > 0 ? 0.12 : 0.045;
+    this.cameraController.addShake(
+      result.destroyedCount > 0 ? 180 : 90,
+      result.destroyedCount > 0 ? 0.12 : 0.045,
+    );
     this.showImpact(point, result.destroyedCount > 0);
     this.spawnDestructionEffects(point, result.destroyedCount);
     this.playPunchSound(result.destroyedCount > 0);
@@ -373,8 +359,7 @@ export class VoxelDemo {
     const now = performance.now();
     enemy.hp -= 1;
     this.hitStopUntil = now + GAME_CONFIG.destruction.hitStop * 1000;
-    this.shakeUntil = now + 150;
-    this.shakeStrength = 0.1;
+    this.cameraController.addShake(150, 0.1);
     this.showImpact(hitPoint, true);
     const knockback = enemy.mesh.position.clone().sub(this.player.position);
     knockback.y = 0;
@@ -443,14 +428,13 @@ export class VoxelDemo {
     const input = this.inputManager.update();
     this.playerController.setMoveInput(input.moveX, input.moveY);
     const inputLength = this.playerController.input.length();
-    if (!this.cameraManuallyControlled) {
+    if (!this.cameraController.isManual) {
       if (inputLength > 0.1 && !this.movementInputActive) {
-        this.cameraYaw = this.player.rotation.y + Math.PI;
-        this.behindCameraTransition = 1;
+        this.cameraController.alignBehind(this.player.rotation.y);
       }
       this.movementInputActive = inputLength > 0.1;
     }
-    this.playerController.update(delta, this.cameraYaw);
+    this.playerController.update(delta, this.cameraController.yaw);
   }
 
   private finishGroundPound(): void {
@@ -478,8 +462,7 @@ export class VoxelDemo {
     }
     const now = performance.now();
     this.hitStopUntil = now + 80;
-    this.shakeUntil = now + 300;
-    this.shakeStrength = result.destroyedCount > 0 ? 0.28 : 0.12;
+    this.cameraController.addShake(300, result.destroyedCount > 0 ? 0.28 : 0.12);
     this.showImpact(point, true);
     this.spawnDestructionEffects(point, result.destroyedCount, 2.2);
     this.playGroundPoundSound();
@@ -529,8 +512,7 @@ export class VoxelDemo {
   private damagePlayer(source: THREE.Vector3): void {
     if (this.gameState !== "playing") return;
     this.hp = Math.max(0, this.hp - GAME_CONFIG.enemies.contactDamage);
-    this.shakeUntil = performance.now() + 240;
-    this.shakeStrength = 0.18;
+    this.cameraController.addShake(240, 0.18);
     const knockback = this.player.position.clone().sub(source);
     knockback.y = 0;
     if (knockback.lengthSq() > 0.001) this.player.position.addScaledVector(knockback.normalize(), 0.35);
@@ -576,29 +558,7 @@ export class VoxelDemo {
   }
 
   private updateCamera(delta: number): void {
-    this.target.copy(this.player.position).y += GAME_CONFIG.camera.height;
-    const horizontal = Math.cos(this.cameraPitch) * GAME_CONFIG.camera.distance;
-    this.desiredCamera.set(
-      this.target.x + Math.sin(this.cameraYaw) * horizontal,
-      this.target.y + Math.sin(this.cameraPitch) * GAME_CONFIG.camera.distance,
-      this.target.z + Math.cos(this.cameraYaw) * horizontal,
-    );
-    this.cameraDirection.copy(this.desiredCamera).sub(this.target);
-    const distance = this.cameraDirection.length();
-    this.cameraDirection.normalize();
-    this.cameraRay.set(this.target, this.cameraDirection);
-    const obstacle = this.world.raycast(this.cameraRay)[0];
-    if (obstacle && obstacle.distance < distance) this.desiredCamera.copy(this.target).addScaledVector(this.cameraDirection, Math.max(1.2, obstacle.distance - 0.35));
-    const cameraFollowRate = this.behindCameraTransition > 0 ? 28 : 12;
-    this.camera.position.lerp(this.desiredCamera, Math.min(1, delta * cameraFollowRate));
-    this.behindCameraTransition = Math.max(0, this.behindCameraTransition - delta * 4);
-    const now = performance.now();
-    if (now < this.shakeUntil) {
-      const falloff = (this.shakeUntil - now) / 180;
-      this.camera.position.x += Math.sin(now * 0.11) * this.shakeStrength * falloff;
-      this.camera.position.y += Math.cos(now * 0.14) * this.shakeStrength * falloff;
-    }
-    this.camera.lookAt(this.target);
+    this.cameraController.update(delta, this.player.position);
   }
 
   private showImpact(point: THREE.Vector3, strong: boolean): void {
@@ -770,11 +730,8 @@ export class VoxelDemo {
     this.playerController.reset();
     this.playerCombat.reset();
     this.inputManager.setMoveInput(0, 0);
-    this.cameraYaw = Math.PI;
-    this.cameraPitch = 0.25;
-    this.cameraManuallyControlled = false;
+    this.cameraController.reset();
     this.movementInputActive = false;
-    this.behindCameraTransition = 0;
     this.destroyedTotal = 0;
     this.enemiesDefeatedTotal = 0;
     this.combo = 0;
@@ -809,6 +766,7 @@ export class VoxelDemo {
     this.playerController.setWorld(this.world, this.playerCollision);
     this.playerCombat.setWorld(this.world);
     this.destructionSystem.setWorld(this.world);
+    this.cameraController.setWorld(this.world);
     this.scene.add(this.world.group);
     this.updateWorldRenderingDistance();
     this.reset();
