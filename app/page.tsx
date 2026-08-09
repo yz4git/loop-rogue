@@ -15,6 +15,18 @@ type FullscreenRoot = HTMLElement & {
   webkitRequestFullscreen?: () => Promise<void> | void;
 };
 
+type StageMode = "handcrafted" | "procedural";
+interface RandomStageSettings {
+  seed: string;
+  size: "small" | "medium";
+  difficulty: "easy" | "normal" | "hard";
+  theme: "mixed" | "forest" | "mountain" | "ruins";
+}
+
+const createStageSource = (mode: StageMode, settings: RandomStageSettings) => mode === "procedural"
+  ? new ProceduralStageSource(settings)
+  : new HandcraftedStageSource();
+
 interface RandomStageRecord {
   seed: string;
   generatorVersion: number;
@@ -46,8 +58,8 @@ const INITIAL_STATS: DemoStats = {
   elapsedSeconds: 0,
   status: "playing",
   lastMessage: "深部へ掘り、敵2体を倒してゴールへ",
-  stageMode: "handcrafted",
-  seed: "—",
+  stageMode: "procedural",
+  seed: "first-dig",
   generatorVersion: 0,
   generationMs: 0,
   caves: 0,
@@ -65,7 +77,7 @@ export default function Home() {
   const [stats, setStats] = useState(INITIAL_STATS);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [stageMode, setStageMode] = useState<"handcrafted" | "procedural">("handcrafted");
+  const [stageMode, setStageMode] = useState<"handcrafted" | "procedural">("procedural");
   const [randomSeed, setRandomSeed] = useState("first-dig");
   const [randomSize, setRandomSize] = useState<"small" | "medium">("small");
   const [randomDifficulty, setRandomDifficulty] = useState<"easy" | "normal" | "hard">("normal");
@@ -80,6 +92,8 @@ export default function Home() {
     const viewport = viewportRef.current;
     if (!viewport) return undefined;
     let errorTimer: number | undefined;
+    let initialTimer: number | undefined;
+    let stageTimer: number | undefined;
     try {
       const force2d = new URLSearchParams(window.location.search).get("test") === "2d";
       const canUseWebGL = !force2d && Boolean(document.createElement("canvas").getContext("webgl"));
@@ -90,17 +104,195 @@ export default function Home() {
         catch { viewport.replaceChildren(); demo = new CanvasTestDemo(viewport, setStats); }
       }
       demoRef.current = demo;
+      if (demo instanceof VoxelDemo) {
+        let initial = { seed: "first-dig", size: "small" as const, difficulty: "normal" as const, theme: "mixed" as const };
+        try {
+          const saved = JSON.parse(localStorage.getItem("loop-rogue:last-random-stage") ?? "null") as Partial<RandomStageRecord> | null;
+          if (saved?.seed) initial = {
+            seed: saved.seed,
+            size: saved.size === "medium" ? "medium" : "small",
+            difficulty: saved.difficulty === "easy" || saved.difficulty === "hard" ? saved.difficulty : "normal",
+            theme: saved.theme === "forest" || saved.theme === "mountain" || saved.theme === "ruins" ? saved.theme : "mixed",
+          };
+        } catch { /* 保存値が読めなくても初期シードで開始する。 */ }
+        initialTimer = window.setTimeout(() => {
+          setRandomSeed(initial.seed);
+          setRandomSize(initial.size);
+          setRandomDifficulty(initial.difficulty);
+          setRandomTheme(initial.theme);
+          setStageMode("procedural");
+          setIsGenerating(true);
+          stageTimer = window.setTimeout(() => {
+            demo.switchStage(createStageSource("procedural", initial));
+            setIsGenerating(false);
+          }, 16);
+        }, 0);
+      }
     } catch {
       errorTimer = window.setTimeout(() => setPreviewError("2Dテスト表示も開始できませんでした。Canvas対応ブラウザで開いてください。"), 0);
     }
-    return (
+    return () => {
+      if (errorTimer !== undefined) window.clearTimeout(errorTimer);
+      const demo = demoRef.current;
+      demoRef.current = null;
+      demo?.dispose();
+      if (initialTimer !== undefined) window.clearTimeout(initialTimer);
+      if (stageTimer !== undefined) window.clearTimeout(stageTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const demo = demoRef.current;
+    if (!demo) return;
+    if (settingsOpen) demo.pause();
+    else demo.resume();
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (stats.status !== "cleared" || stats.stageMode !== "procedural") return;
+    try {
+      const key = "loop-rogue:random-records";
+      const records = JSON.parse(localStorage.getItem(key) ?? "[]") as RandomStageRecord[];
+      const record: RandomStageRecord = { seed: stats.seed, generatorVersion: stats.generatorVersion, size: randomSize, difficulty: randomDifficulty, theme: randomTheme, cleared: true };
+      const next = [record, ...records.filter((item) => item.seed !== record.seed)].slice(0, 50);
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch { /* 保存不可でもクリア処理は継続 */ }
+  }, [stats.status, stats.stageMode, stats.seed, stats.generatorVersion, randomSize, randomDifficulty, randomTheme]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const favorites = JSON.parse(localStorage.getItem("loop-rogue:favorite-seeds") ?? "[]") as unknown;
+        if (Array.isArray(favorites)) setFavoriteSeeds(favorites.filter((value): value is string => typeof value === "string").slice(0, 20));
+      } catch { /* Safariのプライベートモードでは端末保存を省略する。 */ }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const updateFullscreenState = () => {
+      const fullscreenDocument = document as FullscreenDocument;
+      setIsFullscreen(Boolean(document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", updateFullscreenState);
+    return () => document.removeEventListener("fullscreenchange", updateFullscreenState);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    const fullscreenDocument = document as FullscreenDocument;
+    const fullscreenRoot = document.documentElement as FullscreenRoot;
+    try {
+      if (document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement) {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else if (fullscreenDocument.webkitExitFullscreen) await fullscreenDocument.webkitExitFullscreen();
+        return;
+      }
+      if (fullscreenRoot.requestFullscreen) await fullscreenRoot.requestFullscreen();
+      else if (fullscreenRoot.webkitRequestFullscreen) await fullscreenRoot.webkitRequestFullscreen();
+      else setStats((current) => ({ ...current, lastMessage: "Safariではホーム画面に追加すると全画面で遊べます" }));
+    } catch {
+      setStats((current) => ({ ...current, lastMessage: "全画面化できませんでした。Safariの操作を確認してください" }));
+    }
+  };
+
+  const updateJoystick = (event: React.PointerEvent<HTMLDivElement>) => {
+    const joystick = joystickRef.current;
+    if (!joystick || joystickPointer.current !== event.pointerId) return;
+    const rect = joystick.getBoundingClientRect();
+    const max = rect.width * 0.34;
+    const dx = event.clientX - (rect.left + rect.width / 2);
+    const dy = event.clientY - (rect.top + rect.height / 2);
+    const length = Math.hypot(dx, dy);
+    const scale = length > max ? max / length : 1;
+    demoRef.current?.setMoveInput((dx * scale) / max, (dy * scale) / max);
+  };
+
+  const selectStage = (mode: "handcrafted" | "procedural") => {
+    const demo = demoRef.current;
+    if (!(demo instanceof VoxelDemo)) {
+      setStats((current) => ({ ...current, lastMessage: "WebGLテスト表示ではステージ切替を使えません" }));
+      return;
+    }
+    setIsGenerating(mode === "procedural");
+    if (mode === "procedural") {
+      const record: RandomStageRecord = { seed: randomSeed.trim() || "first-dig", generatorVersion: 2, size: randomSize, difficulty: randomDifficulty, theme: randomTheme, cleared: false };
+      try { localStorage.setItem("loop-rogue:last-random-stage", JSON.stringify(record)); } catch { /* 保存不可でもプレイは継続 */ }
+    }
+    startedAtRef.current = Date.now();
+    window.setTimeout(() => {
+      demo.switchStage(createStageSource(mode, { seed: randomSeed, size: randomSize, difficulty: randomDifficulty, theme: randomTheme }));
+      setStageMode(mode);
+      setIsGenerating(false);
+    }, 16);
+  };
+
+  const copySeed = async () => {
+    const value = randomSeed.trim() || "first-dig";
+    try {
+      if (navigator.clipboard) await navigator.clipboard.writeText(value);
+      setStats((current) => ({ ...current, lastMessage: `シードをコピーしました · ${value}` }));
+    } catch {
+      setStats((current) => ({ ...current, lastMessage: `シード: ${value}` }));
+    }
+  };
+
+  const randomizeSeed = () => {
+    const values = new Uint32Array(2);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") crypto.getRandomValues(values);
+    else {
+      values[0] = Date.now() >>> 0;
+      values[1] = Math.floor(Math.random() * 0xffffffff);
+    }
+    setRandomSeed(`seed-${values[0].toString(36)}-${values[1].toString(36)}`);
+  };
+
+  const toggleFavoriteSeed = () => {
+    const value = randomSeed.trim() || "first-dig";
+    const next = favoriteSeeds.includes(value) ? favoriteSeeds.filter((seed) => seed !== value) : [value, ...favoriteSeeds].slice(0, 20);
+    setFavoriteSeeds(next);
+    try { localStorage.setItem("loop-rogue:favorite-seeds", JSON.stringify(next)); } catch { /* 保存不可でもプレイは継続 */ }
+  };
+
+  const shareSeed = async () => {
+    const value = randomSeed.trim() || "first-dig";
+    try {
+      if (navigator.share) await navigator.share({ title: "Loop Rogue ランダムステージ", text: `Loop Rogueのシード: ${value}` });
+      else await copySeed();
+    } catch { /* 共有シートを閉じた場合はゲーム状態を変更しない */ }
+  };
+
+  const resetGame = () => {
+    demoRef.current?.reset();
+  };
+
+  const closeSettings = () => {
+    setSettingsOpen(false);
+  };
+
+  const stopJoystick = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (joystickPointer.current !== event.pointerId) return;
+    joystickPointer.current = null;
+    demoRef.current?.setMoveInput(0, 0);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  useEffect(() => {
+    const registerServiceWorker = async () => {
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+        await registration?.update().catch(() => undefined);
+      }
+    };
+    void registerServiceWorker();
+  }, []);
+
+  return (
     <main className="demo-shell" onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()}>
-      <div className="rotate-message" role="status">iPhoneを横向きにして遊んでください</div>
       <section className="demo-stage" aria-label="ボクセル地形破壊ゲーム">
         <div className="canvas-wrap" ref={viewportRef}>
           {isGenerating && <div className="generation-overlay" role="status"><strong>ランダム地形を生成中</strong><span>シード: {randomSeed}</span><small>地形・地層・開始地点を準備しています</small></div>}
           {previewError && <div className="webgl-error" role="alert">{previewError}</div>}
-          <p className="version-label">VERSION 60</p>
+          <p className="version-label">VERSION 61</p>
           <div className="minimal-hud" aria-label="ゲーム情報">
             <div><span>HP</span><strong className={stats.hp <= 1 ? "danger" : "good"}>{stats.hp}/{stats.maxHp}</strong></div>
             <div><span>COINS</span><strong>{stats.coins}G</strong></div>
@@ -164,4 +356,3 @@ export default function Home() {
     </main>
   );
 }
-
