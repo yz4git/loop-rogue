@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { VoxelDemo, type DemoStats } from "../src/core/VoxelDemo";
-import { CanvasTestDemo } from "../src/core/CanvasTestDemo";
+import { Canvas3DPreviewDemo } from "../src/core/Canvas3DPreviewDemo";
 import { HandcraftedStageSource } from "../src/stages/HandcraftedStageSource";
 import { ProceduralStageSource } from "../src/stages/ProceduralStageSource";
 
@@ -71,7 +71,7 @@ const INITIAL_STATS: DemoStats = {
 
 export default function Home() {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const demoRef = useRef<VoxelDemo | CanvasTestDemo | null>(null);
+  const demoRef = useRef<VoxelDemo | Canvas3DPreviewDemo | null>(null);
   const joystickRef = useRef<HTMLDivElement>(null);
   const joystickPointer = useRef<number | null>(null);
   const [stats, setStats] = useState(INITIAL_STATS);
@@ -95,16 +95,17 @@ export default function Home() {
     let initialTimer: number | undefined;
     let stageTimer: number | undefined;
     try {
-      const force2d = new URLSearchParams(window.location.search).get("test") === "2d";
-      const canUseWebGL = !force2d && Boolean(document.createElement("canvas").getContext("webgl"));
-      let demo: VoxelDemo | CanvasTestDemo;
-      if (!canUseWebGL) demo = new CanvasTestDemo(viewport, setStats);
+      const search = new URLSearchParams(window.location.search);
+      const forceCanvas3d = search.get("test") === "2d" || search.get("renderer") === "canvas3d" || search.get("preview3d") === "1";
+      const canUseWebGL = !forceCanvas3d && Boolean(document.createElement("canvas").getContext("webgl"));
+      let demo: VoxelDemo | Canvas3DPreviewDemo;
+      if (!canUseWebGL) demo = new Canvas3DPreviewDemo(viewport, setStats);
       else {
         try { demo = new VoxelDemo(viewport, setStats); }
-        catch { viewport.replaceChildren(); demo = new CanvasTestDemo(viewport, setStats); }
+        catch { viewport.replaceChildren(); demo = new Canvas3DPreviewDemo(viewport, setStats); }
       }
       demoRef.current = demo;
-      if (demo instanceof VoxelDemo) {
+      if (demo) {
         let initial = { seed: "first-dig", size: "small" as const, difficulty: "normal" as const, theme: "mixed" as const };
         try {
           const saved = JSON.parse(localStorage.getItem("loop-rogue:last-random-stage") ?? "null") as Partial<RandomStageRecord> | null;
@@ -129,7 +130,7 @@ export default function Home() {
         }, 0);
       }
     } catch {
-      errorTimer = window.setTimeout(() => setPreviewError("2Dテスト表示も開始できませんでした。Canvas対応ブラウザで開いてください。"), 0);
+      errorTimer = window.setTimeout(() => setPreviewError("Canvas 3Dプレビューを開始できませんでした。Canvas対応ブラウザで開いてください。"), 0);
     }
     return () => {
       if (errorTimer !== undefined) window.clearTimeout(errorTimer);
@@ -209,10 +210,7 @@ export default function Home() {
 
   const selectStage = (mode: "handcrafted" | "procedural") => {
     const demo = demoRef.current;
-    if (!(demo instanceof VoxelDemo)) {
-      setStats((current) => ({ ...current, lastMessage: "WebGLテスト表示ではステージ切替を使えません" }));
-      return;
-    }
+    if (!demo) return;
     setIsGenerating(mode === "procedural");
     if (mode === "procedural") {
       const record: RandomStageRecord = { seed: randomSeed.trim() || "first-dig", generatorVersion: 2, size: randomSize, difficulty: randomDifficulty, theme: randomTheme, cleared: false };
