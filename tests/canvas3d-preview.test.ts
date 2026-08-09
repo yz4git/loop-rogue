@@ -27,6 +27,7 @@ test("Canvas 3D projection places a camera-facing point near screen center", () 
     60,
   );
   assert.ok(projected);
+  if (!projected) throw new Error("center projection unexpectedly returned null");
   assert.ok(Math.abs(projected.x - 200) < 0.001);
   assert.ok(Math.abs(projected.y - 150) < 0.001);
 });
