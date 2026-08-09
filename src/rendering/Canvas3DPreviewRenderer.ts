@@ -127,7 +127,6 @@ export class Canvas3DPreviewRenderer {
   private readonly forward = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
-  private readonly relative = new THREE.Vector3();
   private readonly pointScratch: CanvasProjectedPoint[] = [
     { x: 0, y: 0, depth: 0 },
     { x: 0, y: 0, depth: 0 },
