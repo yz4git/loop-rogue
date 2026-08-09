@@ -12,7 +12,6 @@ button, input, select { font: inherit; }
 button { cursor: pointer; }
 
 .demo-shell { position: fixed; inset: 0; width: 100vw; height: 100dvh; overflow: hidden; background: #07101e; touch-action: none; }
-.rotate-message { display: none; position: absolute; z-index: 30; inset: 0; place-items: center; padding: 24px; color: #e9ffff; background: #07101e; text-align: center; }
 .demo-stage { position: absolute; inset: 0; overflow: hidden; background: #091322; }
 .canvas-wrap { position: absolute; inset: 0; touch-action: none; -webkit-user-select: none; user-select: none; }
 .voxel-canvas { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; -webkit-user-select: none; user-select: none; }
@@ -84,8 +83,31 @@ button { cursor: pointer; }
 .settings-done { flex: 0 0 auto; min-height: 48px; margin: 0 18px max(16px, env(safe-area-inset-bottom)); border: 1px solid rgba(117, 227, 214, .48); border-radius: 11px; color: #cafff5; background: rgba(22, 96, 94, .72); font-size: 13px; font-weight: 800; touch-action: manipulation; }
 
 :fullscreen .demo-shell, :-webkit-full-screen .demo-shell { width: 100vw; height: 100dvh; }
-@media (orientation: portrait) and (max-width: 700px) {
-  .rotate-message { display: grid; }
+@media (orientation: portrait) {
+  .minimal-hud { gap: 4px; max-width: calc(100vw - 64px); }
+  .minimal-hud > div { min-width: 0; padding: 5px 7px; }
+  .minimal-hud .hud-stage { min-width: 0; }
+  .minimal-hud span { font-size: 6px; }
+  .minimal-hud strong { font-size: 10px; }
+  .virtual-joystick { left: max(12px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom)); width: 88px; height: 88px; }
+  .joystick-knob { width: 36px; height: 36px; }
+  .punch-button { right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 76px); width: 68px; height: 68px; }
+  .jump-button { right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); width: 62px; height: 62px; }
+  .result-overlay { min-width: min(220px, calc(100vw - 28px)); max-width: calc(100vw - 28px); }
+}
+@media (orientation: portrait) and (max-width: 380px) {
+  .minimal-hud { gap: 2px; }
+  .minimal-hud > div { padding-inline: 5px; }
+  .minimal-hud > div:nth-child(1), .minimal-hud > div:nth-child(2) { min-width: 58px; }
+  .minimal-hud .hud-stage { min-width: 82px; }
+  .minimal-hud strong { font-size: 9px; }
+  .settings-button { width: 36px; height: 36px; font-size: 18px; }
+}
+@media (orientation: portrait) and (max-height: 620px) {
+  .virtual-joystick { width: 76px; height: 76px; }
+  .joystick-knob { width: 32px; height: 32px; }
+  .punch-button { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 68px); width: 60px; height: 60px; }
+  .jump-button { bottom: max(10px, env(safe-area-inset-bottom)); width: 56px; height: 56px; }
 }
 @media (orientation: landscape) and (max-height: 500px) {
   .minimal-hud { top: max(6px, env(safe-area-inset-top)); }
