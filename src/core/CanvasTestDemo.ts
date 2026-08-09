@@ -9,6 +9,7 @@ export class CanvasTestDemo {
   private readonly keys = new Set<string>();
   private readonly cells = new Uint8Array(32 * 22);
   private animationFrame = 0;
+  private paused = false;
   private lastTime = performance.now();
   private statsTime = 0;
   // 2Dフォールバックでも、x=横・y=高さ・z=奥行きの3軸を使って検証する。
@@ -47,6 +48,7 @@ export class CanvasTestDemo {
   };
 
   private readonly keyDown = (event: KeyboardEvent) => {
+    if (this.paused) return;
     this.keys.add(event.key.toLowerCase());
     if (event.key === " ") this.jump();
   };
@@ -54,6 +56,7 @@ export class CanvasTestDemo {
   private readonly keyUp = (event: KeyboardEvent) => this.keys.delete(event.key.toLowerCase());
 
   private readonly doPunch = () => {
+    if (this.paused) return;
     const targetX = Math.round(this.player.x);
     const targetZ = Math.round(this.player.z) + 1;
     const index = targetX + targetZ * 32;
@@ -72,6 +75,11 @@ export class CanvasTestDemo {
   }
 
   private readonly animate = () => {
+    if (this.paused) {
+      this.lastTime = performance.now();
+      this.animationFrame = window.requestAnimationFrame(this.animate);
+      return;
+    }
     const now = performance.now();
     const delta = Math.min((now - this.lastTime) / 1000, 0.05);
     this.lastTime = now;
@@ -132,5 +140,8 @@ export class CanvasTestDemo {
   setMoveInput(x: number, y: number): void { this.player.x = Math.max(1, Math.min(30, this.player.x + x)); this.player.z = Math.max(1, Math.min(20, this.player.z + y)); }
   punch(): void { this.doPunch(); }
   jump(): void { if (!this.grounded) return; this.verticalVelocity = GAME_CONFIG.player.jumpVelocity; this.grounded = false; this.lastMessage = "2D 3軸テスト · JUMP · Y上昇中"; }
+  pause(): void { this.paused = true; this.keys.clear(); }
+  resume(): void { this.paused = false; this.lastTime = performance.now(); }
+
   dispose(): void { window.cancelAnimationFrame(this.animationFrame); window.removeEventListener("resize", this.resize); window.removeEventListener("keydown", this.keyDown); window.removeEventListener("keyup", this.keyUp); this.canvas.removeEventListener("pointerdown", this.doPunch); this.canvas.remove(); }
 }
