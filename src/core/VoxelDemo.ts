@@ -27,6 +27,7 @@ export class VoxelDemo {
   private readonly handMaterial = new THREE.MeshLambertMaterial({ color: 0x68e2d1 });
   private readonly runtime: GameRuntime;
   private animationFrame = 0;
+  private paused = false;
   private statsTimer = 0;
 
   constructor(mount: HTMLElement, onStats: (stats: DemoStats) => void, source?: StageSource) {
@@ -120,14 +121,17 @@ export class VoxelDemo {
   };
 
   setMoveInput(x: number, y: number): void {
+    if (this.paused) return;
     this.runtime.setMoveInput(x, y);
   }
 
   jump(): void {
+    if (this.paused) return;
     this.runtime.jump();
   }
 
   punch(): void {
+    if (this.paused) return;
     this.runtime.punch();
   }
 
@@ -185,6 +189,11 @@ export class VoxelDemo {
   }
 
   private readonly animate = () => {
+    if (this.paused) {
+      this.clock.getDelta();
+      this.animationFrame = window.requestAnimationFrame(this.animate);
+      return;
+    }
     const delta = Math.min(this.clock.getDelta(), 0.05);
     const now = performance.now();
     const frame = this.runtime.update(delta, now);
@@ -204,6 +213,20 @@ export class VoxelDemo {
     }
     this.animationFrame = window.requestAnimationFrame(this.animate);
   };
+
+  pause(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this.runtime.setMoveInput(0, 0);
+    this.runtime.detachInput();
+  }
+
+  resume(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.runtime.attachInput(window, this.renderer.domElement);
+    this.clock.getDelta();
+  }
 
   dispose(): void {
     window.cancelAnimationFrame(this.animationFrame);
