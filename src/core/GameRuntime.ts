@@ -101,6 +101,11 @@ export class GameRuntime {
   }
 
   get currentWorld(): VoxelWorld { return this.world; }
+  get playerObject(): THREE.Group { return this.player; }
+  get cameraObject(): THREE.PerspectiveCamera { return this.cameraController.cameraObject; }
+  get enemyStates(): readonly EnemyState[] { return this.enemyManager.enemies; }
+  get coinStates(): readonly ItemPreviewState[] { return this.itemManager.previewCoins; }
+  get goalObject(): THREE.Mesh { return this.goalMesh; }
   get attackAnimationUntil(): number { return this.playerCombat.animationUntil; }
   get isGroundPoundActive(): boolean { return this.playerCombat.isGroundPoundActive; }
 
