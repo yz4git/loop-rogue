@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GAME_CONFIG } from "../core/Settings";
 import type { VoxelWorld } from "../world/VoxelWorld";
 
-interface CoinState {
+export interface ItemPreviewState {
   mesh: THREE.Mesh;
   active: boolean;
   baseY: number;
@@ -80,6 +80,10 @@ export class ItemManager {
     let count = 0;
     for (const coin of this.coins) if (coin.active) count += 1;
     return count;
+  }
+
+  get previewCoins(): readonly ItemPreviewState[] {
+    return this.coins;
   }
 
   private getRewardCoinPoints(): THREE.Vector3[] {
