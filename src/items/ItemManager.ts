@@ -13,7 +13,7 @@ export interface ItemManagerCallbacks {
 }
 
 export class ItemManager {
-  private readonly coins: CoinState[] = [];
+  private readonly coins: ItemPreviewState[] = [];
   private readonly geometry = new THREE.TorusGeometry(0.2, 0.07, 6, 12);
   private readonly material = new THREE.MeshBasicMaterial({ color: 0xffd166 });
   private world: VoxelWorld;
