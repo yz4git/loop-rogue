@@ -128,16 +128,16 @@ export class Canvas3DPreviewRenderer {
   private readonly up = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
   private readonly relative = new THREE.Vector3();
-  private readonly pointScratch: ProjectedPoint[] = [
+  private readonly pointScratch: CanvasProjectedPoint[] = [
     { x: 0, y: 0, depth: 0 },
     { x: 0, y: 0, depth: 0 },
     { x: 0, y: 0, depth: 0 },
     { x: 0, y: 0, depth: 0 },
   ];
-  private readonly baseProjection: ProjectedPoint = { x: 0, y: 0, depth: 0 };
-  private readonly topProjection: ProjectedPoint = { x: 0, y: 0, depth: 0 };
-  private readonly entityProjection: ProjectedPoint = { x: 0, y: 0, depth: 0 };
-  private readonly entityTopProjection: ProjectedPoint = { x: 0, y: 0, depth: 0 };
+  private readonly baseProjection: CanvasProjectedPoint = { x: 0, y: 0, depth: 0 };
+  private readonly topProjection: CanvasProjectedPoint = { x: 0, y: 0, depth: 0 };
+  private readonly entityProjection: CanvasProjectedPoint = { x: 0, y: 0, depth: 0 };
+  private readonly entityTopProjection: CanvasProjectedPoint = { x: 0, y: 0, depth: 0 };
   private readonly headingPoint = new THREE.Vector3();
   private readonly faceCenterScratch = new THREE.Vector3();
   private readonly faces: CanvasPreviewFace[] = [];
