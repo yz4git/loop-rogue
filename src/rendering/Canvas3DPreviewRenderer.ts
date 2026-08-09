@@ -19,25 +19,101 @@ export interface Canvas3DPreviewState {
   groundPoundActive?: boolean;
 }
 
-interface ProjectedPoint {
+export interface CanvasProjectedPoint {
   x: number;
   y: number;
   depth: number;
 }
 
-interface FaceRecord {
+export type CanvasFaceNormal = readonly [number, number, number];
+
+export interface CanvasPreviewFace {
   points: number[];
   depth: number;
   color: string;
 }
 
+export interface CanvasOcclusionWorld {
+  isSolidAt(x: number, y: number, z: number): boolean;
+}
+
+export function projectWorldPoint(
+  point: THREE.Vector3,
+  cameraPosition: THREE.Vector3,
+  forward: THREE.Vector3,
+  right: THREE.Vector3,
+  up: THREE.Vector3,
+  width: number,
+  height: number,
+  fov: number,
+  output: CanvasProjectedPoint = { x: 0, y: 0, depth: 0 },
+): CanvasProjectedPoint | null {
+  const relativeX = point.x - cameraPosition.x;
+  const relativeY = point.y - cameraPosition.y;
+  const relativeZ = point.z - cameraPosition.z;
+  const depth = relativeX * forward.x + relativeY * forward.y + relativeZ * forward.z;
+  if (depth <= 0.2) return null;
+  const focal = (height * 0.5) / Math.tan(THREE.MathUtils.degToRad(fov) * 0.5);
+  output.x = width * 0.5 + ((relativeX * right.x + relativeY * right.y + relativeZ * right.z) * focal) / depth;
+  output.y = height * 0.5 - ((relativeX * up.x + relativeY * up.y + relativeZ * up.z) * focal) / depth;
+  output.depth = depth;
+  return output.x > -width * 0.35 && output.x < width * 1.35
+    && output.y > -height * 0.35 && output.y < height * 1.35
+    ? output
+    : null;
+}
+
+export function isFaceFacingCamera(
+  normal: CanvasFaceNormal,
+  faceCenter: THREE.Vector3,
+  cameraPosition: THREE.Vector3,
+): boolean {
+  const toCameraX = cameraPosition.x - faceCenter.x;
+  const toCameraY = cameraPosition.y - faceCenter.y;
+  const toCameraZ = cameraPosition.z - faceCenter.z;
+  return normal[0] * toCameraX + normal[1] * toCameraY + normal[2] * toCameraZ > 0.0001;
+}
+
+export function isEntityOccluded(
+  world: CanvasOcclusionWorld,
+  cameraPosition: THREE.Vector3,
+  entityPosition: THREE.Vector3,
+  sampleStep = 0.45,
+): boolean {
+  const deltaX = entityPosition.x - cameraPosition.x;
+  const deltaY = entityPosition.y - cameraPosition.y;
+  const deltaZ = entityPosition.z - cameraPosition.z;
+  const distance = Math.hypot(deltaX, deltaY, deltaZ);
+  const steps = Math.min(48, Math.ceil(distance / Math.max(0.25, sampleStep)));
+  for (let index = 1; index < steps; index += 1) {
+    const amount = index / steps;
+    const x = Math.floor(cameraPosition.x + deltaX * amount);
+    const y = Math.floor(cameraPosition.y + deltaY * amount);
+    const z = Math.floor(cameraPosition.z + deltaZ * amount);
+    if (world.isSolidAt(x, y, z)) return true;
+  }
+  return false;
+}
+
+export function sortActiveFaces(
+  faces: readonly CanvasPreviewFace[],
+  faceCount: number,
+  output: CanvasPreviewFace[],
+): number {
+  const activeCount = Math.max(0, Math.min(faceCount, faces.length));
+  for (let index = 0; index < activeCount; index += 1) output[index] = faces[index];
+  output.length = activeCount;
+  output.sort((left, right) => right.depth - left.depth);
+  return activeCount;
+}
+
 const FACE_DEFINITIONS = [
-  { neighbor: [1, 0, 0], corners: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]], shade: 0.92 },
-  { neighbor: [-1, 0, 0], corners: [[0, 0, 1], [0, 1, 1], [0, 1, 0], [0, 0, 0]], shade: 0.84 },
-  { neighbor: [0, 1, 0], corners: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], shade: 1.16 },
-  { neighbor: [0, -1, 0], corners: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], shade: 0.62 },
-  { neighbor: [0, 0, 1], corners: [[1, 0, 1], [1, 1, 1], [0, 1, 1], [0, 0, 1]], shade: 1.0 },
-  { neighbor: [0, 0, -1], corners: [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]], shade: 0.78 },
+  { normal: [1, 0, 0], neighbor: [1, 0, 0], corners: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]], shade: 0.92 },
+  { normal: [-1, 0, 0], neighbor: [-1, 0, 0], corners: [[0, 0, 1], [0, 1, 1], [0, 1, 0], [0, 0, 0]], shade: 0.84 },
+  { normal: [0, 1, 0], neighbor: [0, 1, 0], corners: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], shade: 1.16 },
+  { normal: [0, -1, 0], neighbor: [0, -1, 0], corners: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], shade: 0.62 },
+  { normal: [0, 0, 1], neighbor: [0, 0, 1], corners: [[1, 0, 1], [1, 1, 1], [0, 1, 1], [0, 0, 1]], shade: 1.0 },
+  { normal: [0, 0, -1], neighbor: [0, 0, -1], corners: [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]], shade: 0.78 },
 ] as const;
 
 const EMPTY = VoxelType.Empty;
@@ -63,7 +139,9 @@ export class Canvas3DPreviewRenderer {
   private readonly entityProjection: ProjectedPoint = { x: 0, y: 0, depth: 0 };
   private readonly entityTopProjection: ProjectedPoint = { x: 0, y: 0, depth: 0 };
   private readonly headingPoint = new THREE.Vector3();
-  private readonly faces: FaceRecord[] = [];
+  private readonly faceCenterScratch = new THREE.Vector3();
+  private readonly faces: CanvasPreviewFace[] = [];
+  private readonly activeFaces: CanvasPreviewFace[] = [];
   private readonly colors = new Map<string, string>();
   private width = 1;
   private height = 1;
@@ -113,16 +191,18 @@ export class Canvas3DPreviewRenderer {
     this.prepareCamera(camera);
     this.faceCount = 0;
     this.drawVoxelFaces(state.world, state.player.position);
-    this.faces.sort((left, right) => right.depth - left.depth);
-    for (let index = 0; index < this.faceCount; index += 1) this.drawFace(this.faces[index]);
+    const activeFaceCount = sortActiveFaces(this.faces, this.faceCount, this.activeFaces);
+    for (let index = 0; index < activeFaceCount; index += 1) this.drawFace(this.activeFaces[index]);
 
-    this.drawGoal(state.goal);
+    if (!isEntityOccluded(state.world, camera.position, state.goal.position)) this.drawGoal(state.goal);
     for (const coin of state.coins) {
       if (coin.visible === false || coin.active === false || !coin.mesh.visible) continue;
+      if (isEntityOccluded(state.world, camera.position, coin.mesh.position)) continue;
       this.drawCoin(coin.mesh.position);
     }
     for (const enemy of state.enemies) {
       if (enemy.visible === false || !enemy.mesh.visible) continue;
+      if (isEntityOccluded(state.world, camera.position, enemy.mesh.position)) continue;
       this.drawEnemy(enemy.mesh.position);
     }
     this.drawPlayer(state.player, state.groundPoundActive === true);
@@ -139,16 +219,18 @@ export class Canvas3DPreviewRenderer {
     return (this.height * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
   }
 
-  private project(point: THREE.Vector3, output: ProjectedPoint, camera: THREE.PerspectiveCamera): boolean {
-    this.relative.copy(point).sub(camera.position);
-    const depth = this.relative.dot(this.forward);
-    if (depth <= 0.2) return false;
-    const focal = this.focalLength(camera);
-    output.x = this.width * 0.5 + (this.relative.dot(this.right) * focal) / depth;
-    output.y = this.height * 0.5 - (this.relative.dot(this.up) * focal) / depth;
-    output.depth = depth;
-    return output.x > -this.width * 0.35 && output.x < this.width * 1.35
-      && output.y > -this.height * 0.35 && output.y < this.height * 1.35;
+  private project(point: THREE.Vector3, output: CanvasProjectedPoint, camera: THREE.PerspectiveCamera): boolean {
+    return projectWorldPoint(
+      point,
+      camera.position,
+      this.forward,
+      this.right,
+      this.up,
+      this.width,
+      this.height,
+      camera.fov,
+      output,
+    ) !== null;
   }
 
   private drawVoxelFaces(world: VoxelWorld, playerPosition: THREE.Vector3): void {
@@ -176,6 +258,12 @@ export class Canvas3DPreviewRenderer {
           for (const face of FACE_DEFINITIONS) {
             if (this.faceCount >= 1800) return;
             if (world.getType(x + face.neighbor[0], y + face.neighbor[1], z + face.neighbor[2]) !== EMPTY) continue;
+            this.faceCenterScratch.set(
+              x + 0.5 + face.normal[0] * 0.5,
+              y + 0.5 + face.normal[1] * 0.5,
+              z + 0.5 + face.normal[2] * 0.5,
+            );
+            if (!isFaceFacingCamera(face.normal, this.faceCenterScratch, camera.position)) continue;
             const record = this.faces[this.faceCount] ?? this.createFace();
             let depth = 0;
             let visible = true;
@@ -198,13 +286,13 @@ export class Canvas3DPreviewRenderer {
     }
   }
 
-  private createFace(): FaceRecord {
-    const record: FaceRecord = { points: [0, 0, 0, 0, 0, 0, 0, 0], depth: Number.NEGATIVE_INFINITY, color: "#000" };
+  private createFace(): CanvasPreviewFace {
+    const record: CanvasPreviewFace = { points: [0, 0, 0, 0, 0, 0, 0, 0], depth: Number.NEGATIVE_INFINITY, color: "#000" };
     this.faces.push(record);
     return record;
   }
 
-  private drawFace(face: FaceRecord): void {
+  private drawFace(face: CanvasPreviewFace): void {
     const context = this.context;
     context.beginPath();
     context.moveTo(face.points[0], face.points[1]);
