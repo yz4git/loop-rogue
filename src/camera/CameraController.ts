@@ -46,6 +46,10 @@ export class CameraController {
     return this.manuallyControlled;
   }
 
+  get cameraObject(): THREE.PerspectiveCamera {
+    return this.camera;
+  }
+
   get distance(): number {
     return this.actualDistance;
   }
