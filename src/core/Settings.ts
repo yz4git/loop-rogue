@@ -67,9 +67,9 @@ export const GAME_CONFIG = {
     requiredEnemiesDefeated: 2,
   },
   camera: {
-    baseDistance: 7.0,
+    baseDistance: 8.5,
     minDistance: 1.35,
-    maxDistance: 8.0,
+    maxDistance: 9.5,
     targetHeight: 1.42,
     lookAhead: 0.35,
     cameraCollisionRadius: 0.35,
