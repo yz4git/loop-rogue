@@ -102,7 +102,11 @@ export default function Home() {
       if (!canUseWebGL) demo = new Canvas3DPreviewDemo(viewport, setStats);
       else {
         try { demo = new VoxelDemo(viewport, setStats); }
-        catch { viewport.replaceChildren(); demo = new Canvas3DPreviewDemo(viewport, setStats); }
+        catch (error) {
+          console.error("[Voxel Break Lab] WebGL initialization failed; falling back to Canvas 3D preview.", error);
+          viewport.replaceChildren();
+          demo = new Canvas3DPreviewDemo(viewport, setStats);
+        }
       }
       demoRef.current = demo;
       if (demo) {
