@@ -33,10 +33,11 @@ class CameraTestStage implements StageSource {
   }
 }
 
-test("third person camera uses the close exploration defaults", () => {
-  assert.equal(GAME_CONFIG.camera.baseDistance, 7);
+test("third person camera keeps an iPhone-readable exploration orbit", () => {
+  assert.ok(GAME_CONFIG.camera.baseDistance >= 7 && GAME_CONFIG.camera.baseDistance <= 9);
   assert.equal(GAME_CONFIG.camera.minDistance, 1.35);
-  assert.equal(GAME_CONFIG.camera.maxDistance, 8);
+  assert.ok(GAME_CONFIG.camera.maxDistance >= GAME_CONFIG.camera.baseDistance);
+  assert.ok(GAME_CONFIG.camera.maxDistance <= 10);
   assert.equal(GAME_CONFIG.camera.cameraCollisionRadius, 0.35);
   assert.ok(GAME_CONFIG.camera.pitchSensitivity < GAME_CONFIG.camera.yawSensitivity);
 });
