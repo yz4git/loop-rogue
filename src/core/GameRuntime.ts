@@ -43,6 +43,7 @@ export class GameRuntime {
   private movementInputActive = false;
   private lastMessage = "破壊をつないでMomentumを上げ、深部へ潜れ";
   private lastBreakMode = false;
+  private lastDepthTier = 1;
   private runEndRecorded = false;
 
   constructor(
@@ -173,6 +174,7 @@ export class GameRuntime {
     this.runDirector.reset(this.world.metadata?.seed ?? "handcrafted", this.world.metadata?.difficulty ?? "normal");
     this.runEndRecorded = false;
     this.lastBreakMode = false;
+    this.lastDepthTier = 1;
     this.playerController.reset();
     this.playerCombat.reset();
     this.applyRunModifiers();
@@ -533,6 +535,12 @@ export class GameRuntime {
 
   private syncRunTransitions(): void {
     const run = this.runDirector.snapshot;
+    if (run.depthTier > this.lastDepthTier) {
+      this.lastDepthTier = run.depthTier;
+      const spawned = this.enemyManager.triggerDepthSurge(this.player.position, run.depthTier);
+      this.cameraController.addShake(300, 0.14);
+      this.setMessage(`DEPTH TIER ${run.depthTier} · DANGER SURGE${spawned > 0 ? ` · +${spawned} ENEMIES` : ""}`);
+    }
     if (run.breakMode !== this.lastBreakMode) {
       this.lastBreakMode = run.breakMode;
       if (run.breakMode) {

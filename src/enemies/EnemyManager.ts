@@ -249,6 +249,31 @@ export class EnemyManager {
     return results;
   }
 
+  triggerDepthSurge(playerPosition: THREE.Vector3, tier = this.depthTier): number {
+  this.depthTier = Math.max(this.depthTier, Math.floor(tier));
+  const bossActive = this.bossState !== null;
+  const capacity = Math.max(1, GAME_CONFIG.enemies.maxActive - (bossActive ? 1 : 0));
+  const target = Math.min(capacity, this.getRegularPopulationTarget(bossActive) + 1);
+  let activeRegular = this.enemies.reduce(
+    (count, enemy) => count + (enemy.mesh.visible && !enemy.boss ? 1 : 0),
+    0,
+  );
+  const before = activeRegular;
+  if (activeRegular < target) {
+    const spawnPoints = this.getSpawnPoints();
+    for (let index = 0; index < this.enemies.length && activeRegular < target; index += 1) {
+      const enemy = this.enemies[index];
+      if (enemy.mesh.visible || enemy.boss) continue;
+      const type = TYPE_ORDER[(index + this.depthTier + 1) % TYPE_ORDER.length];
+      const spawn = this.selectReinforcementSpawn(spawnPoints, playerPosition, index);
+      this.configureRegularEnemy(enemy, type, spawn, true, 0.18 + index * 0.03);
+      activeRegular += 1;
+    }
+  }
+  this.reinforcementCooldown = Math.min(this.reinforcementCooldown, 1.1);
+  return activeRegular - before;
+}
+
   private maintainPopulation(playerPosition: THREE.Vector3): void {
     const regularTarget = this.getRegularPopulationTarget(this.bossState !== null);
     let activeRegular = this.enemies.reduce(

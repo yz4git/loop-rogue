@@ -149,3 +149,31 @@ test("goal contact cannot bypass the RunDirector boss progression gate", () => {
   assert.doesNotMatch(runtime, /maybeSpawnBoss\(force/);
   assert.match(runtime, /BOSS LOCK/);
 });
+
+
+test("EnemyManager creates an immediate reinforcement surge on a new depth tier", () => {
+  const world = new VoxelWorld();
+  const scene = new THREE.Scene();
+  const player = new THREE.Group();
+  player.position.set(world.spawnPoint.x, world.spawnPoint.y, world.spawnPoint.z);
+  const manager = new EnemyManager(scene, world, {
+    onPlayerContact: () => undefined,
+    onEnemyDamaged: () => undefined,
+  });
+  manager.reset();
+  manager.setDanger(1.35, 2);
+  const before = manager.activeCount;
+  const spawned = manager.triggerDepthSurge(player.position, 2);
+  assert.ok(spawned >= 1);
+  assert.ok(manager.activeCount > before);
+  assert.ok(manager.activeCount <= GAME_CONFIG.enemies.maxActive);
+  manager.dispose();
+  world.dispose();
+});
+
+test("GameRuntime turns depth-tier changes into visible danger surges", () => {
+  const runtime = readFileSync(new URL("../src/core/GameRuntime.ts", import.meta.url), "utf8");
+  assert.match(runtime, /triggerDepthSurge/);
+  assert.match(runtime, /DANGER SURGE/);
+  assert.match(runtime, /lastDepthTier/);
+});
