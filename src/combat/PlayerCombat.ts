@@ -7,6 +7,11 @@ export interface CombatEnemyTarget {
   hp: number;
 }
 
+export interface CombatRuntimeModifiers {
+  punchCooldown: number;
+  punchRange: number;
+}
+
 export interface PlayerCombatCallbacks {
   onEnemyHit: (enemy: CombatEnemyTarget, origin: THREE.Vector3) => void;
   onTerrainHit: (point: THREE.Vector3, now: number) => void;
@@ -21,6 +26,10 @@ export class PlayerCombat {
   private groundPoundReadyAt = 0;
   private groundPoundActive = false;
   private punchUntil = 0;
+  private runtimeModifiers: CombatRuntimeModifiers = {
+    punchCooldown: 1,
+    punchRange: 1,
+  };
 
   constructor(
     private readonly player: THREE.Group,
@@ -42,6 +51,13 @@ export class PlayerCombat {
     this.world = world;
   }
 
+  setRuntimeModifiers(modifiers: CombatRuntimeModifiers): void {
+    this.runtimeModifiers = {
+      punchCooldown: Math.max(0.35, modifiers.punchCooldown),
+      punchRange: Math.max(0.8, modifiers.punchRange),
+    };
+  }
+
   reset(): void {
     this.punchReadyAt = 0;
     this.groundPoundReadyAt = 0;
@@ -56,22 +72,23 @@ export class PlayerCombat {
     }
     const now = performance.now();
     if (now < this.punchReadyAt) return;
-    this.punchReadyAt = now + GAME_CONFIG.destruction.punchCooldown * 1000;
-    this.punchUntil = now + 240;
+    this.punchReadyAt = now + GAME_CONFIG.destruction.punchCooldown * this.runtimeModifiers.punchCooldown * 1000;
+    this.punchUntil = now + 210;
     const direction = new THREE.Vector3(Math.sin(this.player.rotation.y), 0, Math.cos(this.player.rotation.y));
     const origin = this.player.position.clone()
       .add(new THREE.Vector3(0, 0.7, 0))
       .addScaledVector(direction, 0.38);
     this.raycaster.set(origin, direction);
+    const punchRange = GAME_CONFIG.destruction.punchRange * this.runtimeModifiers.punchRange;
     const wallHit = this.world.raycast(this.raycaster)
-      .find((intersection) => intersection.distance <= GAME_CONFIG.destruction.punchRange);
-    const enemy = this.findEnemyInFront(direction);
+      .find((intersection) => intersection.distance <= punchRange);
+    const enemy = this.findEnemyInFront(direction, punchRange);
     if (enemy && !wallHit) {
       this.callbacks.onEnemyHit(enemy, origin);
       return;
     }
     const first = this.world.raycast(this.raycaster)
-      .find((intersection) => intersection.distance <= GAME_CONFIG.destruction.punchRange);
+      .find((intersection) => intersection.distance <= punchRange);
     if (!first?.point) {
       this.callbacks.onMessage("パンチ空振り · 岩へ近づいてください");
       this.callbacks.playPunchSound(false);
@@ -95,7 +112,7 @@ export class PlayerCombat {
     this.groundPoundReadyAt = performance.now() + GAME_CONFIG.destruction.groundPoundCooldown * 1000;
   }
 
-  private findEnemyInFront(direction: THREE.Vector3): CombatEnemyTarget | null {
+  private findEnemyInFront(direction: THREE.Vector3, punchRange: number): CombatEnemyTarget | null {
     let target: CombatEnemyTarget | null = null;
     let nearest = Number.POSITIVE_INFINITY;
     for (const enemy of this.enemies) {
@@ -104,7 +121,7 @@ export class PlayerCombat {
       const distance = toEnemy.length();
       const along = direction.dot(toEnemy);
       const lateralSq = Math.max(0, distance * distance - along * along);
-      if (along < 0 || along > GAME_CONFIG.destruction.punchRange + 0.6 || lateralSq > 1.25 * 1.25 || distance >= nearest) continue;
+      if (along < 0 || along > punchRange + 0.6 || lateralSq > 1.25 * 1.25 || distance >= nearest) continue;
       nearest = distance;
       target = enemy;
     }
