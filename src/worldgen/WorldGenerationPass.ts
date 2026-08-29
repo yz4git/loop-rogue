@@ -26,6 +26,7 @@ export interface WorldGenerationMetrics {
   landmarks: number;
   jigsawPieces: number;
   jigsawConnectors: number;
+  breakSetpieces: number;
 }
 
 export interface WorldGenerationContext {
@@ -120,6 +121,7 @@ export function createWorldGenerationContext(
       landmarks: 0,
       jigsawPieces: 0,
       jigsawConnectors: 0,
+      breakSetpieces: 0,
     },
     generationPasses: [],
     coinSpawns: [],
