@@ -10,6 +10,12 @@ export interface PlayerMotionState {
   groundPoundActive: boolean;
 }
 
+export interface PlayerRuntimeModifiers {
+  moveSpeed: number;
+  acceleration: number;
+  jumpVelocity: number;
+}
+
 export interface PlayerControllerCallbacks {
   onMessage?: (message: string) => void;
   onGroundPoundLanded?: () => void;
@@ -24,6 +30,11 @@ export class PlayerController {
     jumpBufferedUntil: 0,
     coyoteUntil: 0,
     groundPoundActive: false,
+  };
+  private runtimeModifiers: PlayerRuntimeModifiers = {
+    moveSpeed: 1,
+    acceleration: 1,
+    jumpVelocity: 1,
   };
 
   constructor(
@@ -50,6 +61,14 @@ export class PlayerController {
     this.collision = collision;
   }
 
+  setRuntimeModifiers(modifiers: PlayerRuntimeModifiers): void {
+    this.runtimeModifiers = {
+      moveSpeed: Math.max(0.5, modifiers.moveSpeed),
+      acceleration: Math.max(0.5, modifiers.acceleration),
+      jumpVelocity: Math.max(0.7, modifiers.jumpVelocity),
+    };
+  }
+
   setMoveInput(x: number, y: number): void {
     this.input.set(Math.max(-1, Math.min(1, x)), Math.max(-1, Math.min(1, y)));
   }
@@ -63,7 +82,7 @@ export class PlayerController {
       this.motion.jumpBufferedUntil = now + 500;
       return;
     }
-    this.velocity.y = GAME_CONFIG.player.jumpVelocity;
+    this.velocity.y = GAME_CONFIG.player.jumpVelocity * this.runtimeModifiers.jumpVelocity;
     this.motion.grounded = false;
     this.motion.jumpBufferedUntil = 0;
     this.callbacks.onMessage?.("ジャンプ");
@@ -114,16 +133,18 @@ export class PlayerController {
       0,
       -Math.sin(cameraYaw) * this.input.x + Math.cos(cameraYaw) * this.input.y,
     );
-    if (inputLength > 0.01) desired.normalize().multiplyScalar(GAME_CONFIG.player.moveSpeed * Math.min(1, inputLength));
+    const moveSpeed = GAME_CONFIG.player.moveSpeed * this.runtimeModifiers.moveSpeed;
+    if (inputLength > 0.01) desired.normalize().multiplyScalar(moveSpeed * Math.min(1, inputLength));
     else desired.set(0, 0, 0);
 
     const control = this.motion.grounded ? 1 : GAME_CONFIG.player.airControl;
-    const blend = Math.min(1, GAME_CONFIG.player.acceleration * control * delta);
+    const acceleration = GAME_CONFIG.player.acceleration * this.runtimeModifiers.acceleration;
+    const blend = Math.min(1, acceleration * control * delta);
     this.velocity.x += (desired.x - this.velocity.x) * blend;
     this.velocity.z += (desired.z - this.velocity.z) * blend;
     if (inputLength < 0.01 && this.motion.grounded) {
-      this.velocity.x *= Math.max(0, 1 - 12 * delta);
-      this.velocity.z *= Math.max(0, 1 - 12 * delta);
+      this.velocity.x *= Math.max(0, 1 - 14 * delta);
+      this.velocity.z *= Math.max(0, 1 - 14 * delta);
     }
 
     if (this.motion.grounded && this.hasGroundSupport() && this.velocity.y <= 0) {
@@ -161,7 +182,7 @@ export class PlayerController {
     if (this.motion.grounded) this.snapToGround(false, GAME_CONFIG.player.groundSnapDistance);
     if (this.motion.grounded) this.motion.coyoteUntil = performance.now() + 100;
     if (this.motion.jumpBufferedUntil > performance.now() && this.motion.grounded) {
-      this.velocity.y = GAME_CONFIG.player.jumpVelocity;
+      this.velocity.y = GAME_CONFIG.player.jumpVelocity * this.runtimeModifiers.jumpVelocity;
       this.motion.grounded = false;
       this.motion.jumpBufferedUntil = 0;
       this.callbacks.onMessage?.("ジャンプ");
@@ -175,7 +196,7 @@ export class PlayerController {
       this.player.position.x > this.world.width - 1 ||
       this.player.position.z > this.world.depth - 1
     ) {
-      this.player.position.set(GAME_CONFIG.player.spawn.x, GAME_CONFIG.player.spawn.y, GAME_CONFIG.player.spawn.z);
+      this.player.position.set(this.world.spawnPoint.x, this.world.spawnPoint.y, this.world.spawnPoint.z);
       this.reset();
       this.snapToGround(true);
       this.callbacks.onMessage?.("落下したため入口へ戻りました");
