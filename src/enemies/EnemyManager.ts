@@ -52,6 +52,7 @@ export class EnemyManager {
   private danger = 1;
   private depthTier = 1;
   private reinforcementCooldown = 0;
+  private playerContactCooldown = 0;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -108,6 +109,7 @@ export class EnemyManager {
       this.configureRegularEnemy(this.enemies[index], type, position, index < activeCount, index * 0.13);
     }
     this.reinforcementCooldown = 3.5;
+    this.playerContactCooldown = 0;
   }
 
   spawnBoss(position: THREE.Vector3, tier: number): EnemyState | null {
@@ -133,6 +135,7 @@ export class EnemyManager {
 
   update(delta: number, player: THREE.Group): void {
     this.reinforcementCooldown = Math.max(0, this.reinforcementCooldown - delta);
+    this.playerContactCooldown = Math.max(0, this.playerContactCooldown - delta);
     if (this.reinforcementCooldown <= 0) {
       this.maintainPopulation(player.position);
       this.reinforcementCooldown = Math.max(1.8, 4.4 - this.depthTier * 0.45);
@@ -147,8 +150,9 @@ export class EnemyManager {
       const distance = toPlayer.length();
       const contactRange = enemy.boss ? 1.45 : enemy.type === "brute" ? 1.08 : GAME_CONFIG.enemies.contactRange;
       if (distance <= contactRange) {
-        if (enemy.hitCooldown <= 0) {
+        if (enemy.hitCooldown <= 0 && this.playerContactCooldown <= 0) {
           enemy.hitCooldown = enemy.boss ? 0.82 : GAME_CONFIG.enemies.contactCooldown;
+          this.playerContactCooldown = enemy.boss ? 0.7 : 1.15;
           const damage = enemy.boss ? 2 : enemy.type === "brute" ? 2 : 1;
           this.callbacks.onPlayerContact(enemy.mesh.position, damage);
           if ((enemy.boss || enemy.type === "bomber") && enemy.terrainCooldown <= 0) {
