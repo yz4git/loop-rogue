@@ -114,3 +114,38 @@ test("composition root and procedural source use the migrated runtime boundaries
   assert.doesNotMatch(procedural, /new ValueNoise/);
   assert.ok(procedural.split("\n").length < 60);
 });
+
+
+test("EnemyManager recycles a defeated boss slot back into the reinforcement pool", () => {
+  const world = new VoxelWorld();
+  const scene = new THREE.Scene();
+  const player = new THREE.Group();
+  player.position.set(world.spawnPoint.x, world.spawnPoint.y, world.spawnPoint.z);
+  const manager = new EnemyManager(scene, world, {
+    onPlayerContact: () => undefined,
+    onEnemyDamaged: () => undefined,
+  });
+  manager.reset();
+  manager.setDanger(2, 5);
+  const bossPoint = new THREE.Vector3(world.goalPoint.x, world.goalPoint.y, world.goalPoint.z);
+  const boss = manager.spawnBoss(bossPoint, 5);
+  assert.ok(boss);
+  if (!boss) throw new Error("boss slot was unavailable");
+  const result = manager.damage(boss, player.position, boss.mesh.position.clone(), boss.maxHp + 10, 1);
+  assert.equal(result?.defeated, true);
+  assert.equal(result?.boss, true);
+  assert.equal(boss.boss, false);
+  assert.notEqual(boss.type, "boss");
+  assert.equal(boss.mesh.visible, false);
+  manager.update(4, player);
+  assert.ok(manager.activeCount >= 7);
+  manager.dispose();
+  world.dispose();
+});
+
+test("goal contact cannot bypass the RunDirector boss progression gate", () => {
+  const runtime = readFileSync(new URL("../src/core/GameRuntime.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(runtime, /maybeSpawnBoss\(true\)/);
+  assert.doesNotMatch(runtime, /maybeSpawnBoss\(force/);
+  assert.match(runtime, /BOSS LOCK/);
+});

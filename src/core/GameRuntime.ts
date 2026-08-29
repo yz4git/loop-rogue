@@ -484,10 +484,10 @@ export class GameRuntime {
       : `被弾 · HP ${this.session.state.hp}/${this.session.state.maxHp}`);
   }
 
-  private maybeSpawnBoss(force = false): void {
+  private maybeSpawnBoss(): void {
     const depthRatio = this.depthProgressRatio();
     const state = this.session.state;
-    if (!force && !this.runDirector.shouldSpawnBoss(depthRatio, state.elapsedSeconds)) return;
+    if (!this.runDirector.shouldSpawnBoss(depthRatio, state.elapsedSeconds)) return;
     if (this.runDirector.snapshot.bossActive || this.runDirector.snapshot.bossDefeated) return;
     const bossPosition = new THREE.Vector3(
       this.world.goalPoint.x,
@@ -520,10 +520,8 @@ export class GameRuntime {
         const meta = this.runDirector.finishRun(true);
         this.runEndRecorded = true;
         this.setMessage(`RUN CLEAR · ${state.coins}G · CORE ${meta.cores} · LEGACY ${meta.legacyRank}`);
-      } else if (!run.bossActive && !run.bossDefeated) {
-        this.maybeSpawnBoss(true);
       } else {
-        this.setMessage(`GOAL LOCK · 破壊 ${state.destroyed}/${GAME_CONFIG.goal.requiredDestroyed} · 撃破 ${state.enemiesDefeated}/${GAME_CONFIG.goal.requiredEnemiesDefeated}${run.bossActive ? " · BOSS ACTIVE" : ""}`);
+        this.setMessage(`GOAL LOCK · 破壊 ${state.destroyed}/${GAME_CONFIG.goal.requiredDestroyed} · 撃破 ${state.enemiesDefeated}/${GAME_CONFIG.goal.requiredEnemiesDefeated}${run.bossActive ? " · BOSS ACTIVE" : run.bossDefeated ? "" : " · BOSS LOCK · RUN LVを上げて深度72%へ"}`);
       }
     }
   }
