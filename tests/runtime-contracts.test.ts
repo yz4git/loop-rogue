@@ -177,3 +177,14 @@ test("GameRuntime turns depth-tier changes into visible danger surges", () => {
   assert.match(runtime, /DANGER SURGE/);
   assert.match(runtime, /lastDepthTier/);
 });
+
+
+test("runtime exposes close-camera avatar fallback and shared contact grace", () => {
+  const runtime = readFileSync(new URL("../src/core/GameRuntime.ts", import.meta.url), "utf8");
+  const demo = readFileSync(new URL("../src/core/VoxelDemo.ts", import.meta.url), "utf8");
+  const enemies = readFileSync(new URL("../src/enemies/EnemyManager.ts", import.meta.url), "utf8");
+  assert.match(runtime, /cameraDistance/);
+  assert.match(demo, /cameraDistance >= 1\.2/);
+  assert.match(enemies, /playerContactCooldown/);
+  assert.match(enemies, /1\.35/);
+});

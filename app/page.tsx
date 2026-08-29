@@ -47,9 +47,9 @@ const INITIAL_STATS: DemoStats = {
   player: "24.5, 9.7, 6.5",
   grounded: false,
   velocityY: 0,
-  hp: 12,
-  maxHp: 12,
-  enemies: 6,
+  hp: 16,
+  maxHp: 16,
+  enemies: 3,
   coins: 0,
   gameState: "playing",
   enemiesDefeated: 0,
@@ -74,7 +74,7 @@ const INITIAL_STATS: DemoStats = {
   danger: 1,
   runLevel: 0,
   runXp: 0,
-  nextUpgradeXp: 90,
+  nextUpgradeXp: 150,
   pendingUpgrade: false,
   upgradeChoices: [],
   upgrades: [],
@@ -86,7 +86,8 @@ const INITIAL_STATS: DemoStats = {
   legacyRank: 0,
   bestDepth: 0,
   runPace: 0,
-  targetSeconds: 600,
+  runMaxDepth: 0,
+  targetSeconds: 300,
 };
 
 export default function Home() {
@@ -308,7 +309,7 @@ export default function Home() {
   const bossStyle = { "--boss-hp": `${stats.bossMaxHp > 0 ? (stats.bossHp / stats.bossMaxHp) * 100 : 0}%` } as React.CSSProperties;
 
   return (
-    <main className={`demo-shell ${stats.breakMode ? "break-active" : ""}`} onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()}>
+    <main className={`demo-shell ${stats.breakMode ? "break-active" : ""} ${stats.status !== "playing" ? "run-ended" : ""}`} onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()}>
       <section className="demo-stage" aria-label="ボクセル地形破壊ゲーム">
         <div className="canvas-wrap" ref={viewportRef}>
           {isGenerating && <div className="generation-overlay" role="status"><strong>ランダム地形を生成中</strong><span>シード: {randomSeed}</span><small>破壊セットピース・敵・ルートを準備しています</small></div>}
@@ -354,7 +355,7 @@ export default function Home() {
 
           {stats.status !== "playing" && <div className={`result-overlay ${stats.status}`} role="status">
             <strong>{stats.status === "cleared" ? "RUN CLEAR" : "RUN OVER"}</strong>
-            <span>{stats.status === "cleared" ? `Depth Boss撃破 · ${stats.coins}G` : `到達DEPTH ${stats.runPace}%`}</span>
+            <span>{stats.status === "cleared" ? `Depth Boss撃破 · ${stats.coins}G` : `到達DEPTH ${stats.runMaxDepth}%`}</span>
             <small>CORE {stats.metaCores} · LEGACY RANK {stats.legacyRank} · BEST {stats.bestDepth}%</small>
             <button type="button" onPointerDown={(event) => { event.preventDefault(); resetGame(); }}>もう一度潜る</button>
           </div>}

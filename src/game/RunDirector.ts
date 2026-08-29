@@ -63,6 +63,7 @@ export interface RunDirectorSnapshot {
   meta: MetaProgression;
   targetSeconds: number;
   pace: number;
+  maxDepthPercent: number;
 }
 
 interface StoredMeta {
@@ -300,6 +301,7 @@ export class RunDirector {
       meta: this.meta,
       targetSeconds: GAME_CONFIG.run.targetSeconds,
       pace: Math.round(this.pace * 100),
+      maxDepthPercent: Math.round(this.maxDepth * 100),
     };
   }
 

@@ -191,3 +191,12 @@ button { cursor: pointer; }
   .break-active .canvas-wrap::after { animation: none; }
   .settings-button:active, .settings-close:active, .settings-done:active, .settings-actions button:active, .punch-button:active, .jump-button:active, .upgrade-card:active { transform: none; }
 }
+
+
+.run-ended .virtual-joystick,
+.run-ended .punch-button,
+.run-ended .jump-button {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
+}

@@ -230,3 +230,12 @@ test("実ゲームと同じ衝突処理でジャンプ弧を描き、元の床�
   assert.equal(position.y, 1);
   world.dispose();
 });
+
+
+test("RunDirector reports maximum physical depth separately from pacing", () => {
+  const director = new RunDirector();
+  director.reset("max-depth-display", "normal");
+  director.update(1, 0.83, 20);
+  assert.equal(director.snapshot.maxDepthPercent, 83);
+  assert.ok(director.snapshot.pace < director.snapshot.maxDepthPercent);
+});

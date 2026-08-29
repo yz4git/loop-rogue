@@ -152,7 +152,7 @@ export class EnemyManager {
       if (distance <= contactRange) {
         if (enemy.hitCooldown <= 0 && this.playerContactCooldown <= 0) {
           enemy.hitCooldown = enemy.boss ? 0.82 : GAME_CONFIG.enemies.contactCooldown;
-          this.playerContactCooldown = enemy.boss ? 0.7 : 1.15;
+          this.playerContactCooldown = enemy.boss ? 0.8 : 1.35;
           const damage = enemy.boss ? 2 : enemy.type === "brute" ? 2 : 1;
           this.callbacks.onPlayerContact(enemy.mesh.position, damage);
           if ((enemy.boss || enemy.type === "bomber") && enemy.terrainCooldown <= 0) {

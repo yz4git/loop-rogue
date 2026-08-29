@@ -117,6 +117,7 @@ export class GameRuntime {
   get attackAnimationUntil(): number { return this.playerCombat.animationUntil; }
   get isGroundPoundActive(): boolean { return this.playerCombat.isGroundPoundActive; }
   get breakVisualStrength(): number { return this.runDirector.getBreakVisualStrength(); }
+  get cameraDistance(): number { return this.cameraController.distance; }
 
   private createPlayerCollision(): VoxelPlayerCollision {
     return new VoxelPlayerCollision(
@@ -305,6 +306,7 @@ export class GameRuntime {
       legacyRank: run.meta.legacyRank,
       bestDepth: run.meta.bestDepth,
       runPace: run.pace,
+      runMaxDepth: run.maxDepthPercent,
       targetSeconds: run.targetSeconds,
     };
   }
@@ -479,7 +481,7 @@ export class GameRuntime {
     this.cameraController.addShake(240, 0.18);
     const knockback = this.player.position.clone().sub(source);
     knockback.y = 0;
-    if (knockback.lengthSq() > 0.001) this.player.position.addScaledVector(knockback.normalize(), 0.4);
+    if (knockback.lengthSq() > 0.001) this.player.position.addScaledVector(knockback.normalize(), 0.58);
     this.playerController.snapToGround();
     this.setMessage(gameover
       ? "RUN OVER · コア進行を保持して再挑戦"

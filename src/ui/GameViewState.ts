@@ -51,6 +51,7 @@ export interface GameViewState {
   legacyRank: number;
   bestDepth: number;
   runPace: number;
+  runMaxDepth: number;
   targetSeconds: number;
 }
 
