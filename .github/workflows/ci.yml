@@ -32,23 +32,7 @@ jobs:
       - name: Build
         run: npm run build
       - name: Test
-        shell: bash
-        run: |
-          set -euo pipefail
-          tests=(
-            tests/game-rules.test.ts
-            tests/architecture-contracts.test.ts
-            tests/runtime-contracts.test.ts
-            tests/camera-contracts.test.ts
-            tests/canvas3d-preview.test.ts
-            tests/rendered-html.test.mjs
-          )
-          for test_file in "${tests[@]}"; do
-            echo "::group::${test_file}"
-            timeout --signal=TERM --kill-after=5s 60s \
-              node --experimental-test-isolation=none --test-force-exit --import tsx --test "${test_file}"
-            echo "::endgroup::"
-          done
+        run: bash scripts/run-tests.sh
       - name: Worldgen smoke test
         run: timeout --signal=TERM --kill-after=5s 90s npm run test:worldgen
       - name: Lint
