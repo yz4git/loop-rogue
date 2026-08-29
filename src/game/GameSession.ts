@@ -41,6 +41,13 @@ export class GameSession {
     return this.snapshot.state === "gameover";
   }
 
+  heal(amount: number): number {
+    if (amount <= 0 || this.snapshot.hp <= 0) return 0;
+    const before = this.snapshot.hp;
+    this.snapshot.hp = Math.min(this.snapshot.maxHp, this.snapshot.hp + Math.max(0, amount));
+    return this.snapshot.hp - before;
+  }
+
   addCoin(amount = 1): void {
     this.snapshot.coins += Math.max(0, amount);
   }
@@ -80,7 +87,7 @@ export class GameSession {
 
   private advanceCombo(now: number): void {
     this.snapshot.combo = now <= this.comboExpiresAt ? this.snapshot.combo + 1 : 1;
-    this.comboExpiresAt = now + 1600;
+    this.comboExpiresAt = now + 1900;
   }
 
   private comboMessage(bonus: number): string {
