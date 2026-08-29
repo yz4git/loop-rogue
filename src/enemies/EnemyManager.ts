@@ -51,6 +51,7 @@ export class EnemyManager {
   private world: VoxelWorld;
   private danger = 1;
   private depthTier = 1;
+  private reinforcementCooldown = 0;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -98,25 +99,23 @@ export class EnemyManager {
 
   reset(): void {
     const spawnPoints = this.getSpawnPoints();
-    const activeCount = this.getActiveCount();
+    const activeCount = this.getInitialActiveCount();
     for (let index = 0; index < this.enemies.length; index += 1) {
-      const enemy = this.enemies[index];
       const type = TYPE_ORDER[index % TYPE_ORDER.length];
-      enemy.type = type;
-      enemy.boss = false;
-      enemy.mesh.material = this.materials[type];
-      enemy.mesh.scale.setScalar(type === "brute" ? 1.35 : type === "bomber" ? 0.9 : 1);
-      enemy.mesh.position.copy(spawnPoints[index] ?? spawnPoints[index % Math.max(1, spawnPoints.length)] ?? this.fallbackSpawn(index));
-      enemy.mesh.visible = index < activeCount;
-      enemy.maxHp = this.hpForType(type);
-      enemy.hp = enemy.maxHp;
-      enemy.hitCooldown = 0;
-      enemy.terrainCooldown = index * 0.13;
+      const position = spawnPoints[index]
+        ?? spawnPoints[index % Math.max(1, spawnPoints.length)]
+        ?? this.fallbackSpawn(index);
+      this.configureRegularEnemy(this.enemies[index], type, position, index < activeCount, index * 0.13);
     }
+    this.reinforcementCooldown = 3.5;
   }
 
   spawnBoss(position: THREE.Vector3, tier: number): EnemyState | null {
-    const enemy = [...this.enemies].reverse().find((candidate) => !candidate.boss);
+    const regulars = this.enemies.filter((candidate) => !candidate.boss);
+    const enemy = [...regulars].reverse().find((candidate) => !candidate.mesh.visible)
+      ?? [...regulars].sort(
+        (left, right) => right.mesh.position.distanceToSquared(position) - left.mesh.position.distanceToSquared(position),
+      )[0];
     if (!enemy) return null;
     enemy.type = "boss";
     enemy.boss = true;
@@ -133,6 +132,12 @@ export class EnemyManager {
   }
 
   update(delta: number, player: THREE.Group): void {
+    this.reinforcementCooldown = Math.max(0, this.reinforcementCooldown - delta);
+    if (this.reinforcementCooldown <= 0) {
+      this.maintainPopulation(player.position);
+      this.reinforcementCooldown = Math.max(1.8, 4.4 - this.depthTier * 0.45);
+    }
+
     for (const enemy of this.enemies) {
       if (!enemy.mesh.visible) continue;
       enemy.hitCooldown = Math.max(0, enemy.hitCooldown - delta);
@@ -242,6 +247,56 @@ export class EnemyManager {
     return results;
   }
 
+  private maintainPopulation(playerPosition: THREE.Vector3): void {
+    const regularTarget = this.getRegularPopulationTarget(this.bossState !== null);
+    let activeRegular = this.enemies.reduce(
+      (count, enemy) => count + (enemy.mesh.visible && !enemy.boss ? 1 : 0),
+      0,
+    );
+    if (activeRegular >= regularTarget) return;
+
+    const spawnPoints = this.getSpawnPoints();
+    for (let index = 0; index < this.enemies.length && activeRegular < regularTarget; index += 1) {
+      const enemy = this.enemies[index];
+      if (enemy.mesh.visible || enemy.boss) continue;
+      const type = TYPE_ORDER[(index + this.depthTier - 1) % TYPE_ORDER.length];
+      const spawn = this.selectReinforcementSpawn(spawnPoints, playerPosition, index);
+      this.configureRegularEnemy(enemy, type, spawn, true, 0.45 + index * 0.05);
+      activeRegular += 1;
+    }
+  }
+
+  private selectReinforcementSpawn(
+    spawnPoints: readonly THREE.Vector3[],
+    playerPosition: THREE.Vector3,
+    index: number,
+  ): THREE.Vector3 {
+    const farPoints = spawnPoints.filter((point) => point.distanceToSquared(playerPosition) >= 30.25);
+    const pool = farPoints.length > 0 ? farPoints : spawnPoints;
+    const point = (pool[index % Math.max(1, pool.length)] ?? this.fallbackSpawn(index)).clone();
+    for (let rise = 0; rise < 4 && this.world.collidesAabb(point, 0.32, 0.8); rise += 1) point.y += 1;
+    return point;
+  }
+
+  private configureRegularEnemy(
+    enemy: EnemyState,
+    type: EnemyType,
+    position: THREE.Vector3,
+    visible: boolean,
+    terrainCooldown: number,
+  ): void {
+    enemy.type = type;
+    enemy.boss = false;
+    enemy.mesh.material = this.materials[type];
+    enemy.mesh.scale.setScalar(type === "brute" ? 1.35 : type === "bomber" ? 0.9 : 1);
+    enemy.mesh.position.copy(position);
+    enemy.mesh.visible = visible;
+    enemy.maxHp = this.hpForType(type);
+    enemy.hp = enemy.maxHp;
+    enemy.hitCooldown = visible ? 0.55 : 0;
+    enemy.terrainCooldown = terrainCooldown;
+  }
+
   private hpForType(type: EnemyType): number {
     const tierBonus = Math.max(0, this.depthTier - 1);
     if (type === "brute") return GAME_CONFIG.enemies.hp + 2 + Math.floor(tierBonus * 0.7);
@@ -266,9 +321,17 @@ export class EnemyManager {
     return new THREE.Vector3(x, spawn.y, z);
   }
 
-  private getActiveCount(): number {
+  private getInitialActiveCount(): number {
+    if (this.world.metadata?.difficulty === "easy") return Math.min(4, GAME_CONFIG.enemies.maxActive);
+    if (this.world.metadata?.difficulty === "hard") return Math.min(7, GAME_CONFIG.enemies.maxActive);
+    return Math.min(6, GAME_CONFIG.enemies.maxActive);
+  }
+
+  private getRegularPopulationTarget(bossActive: boolean): number {
     const base = this.world.metadata?.difficulty === "easy" ? 4 : this.world.metadata?.difficulty === "hard" ? 7 : 6;
-    return Math.min(base, GAME_CONFIG.enemies.maxActive);
+    const tierBonus = Math.floor(Math.max(0, this.depthTier - 1) / 2);
+    const capacity = Math.max(1, GAME_CONFIG.enemies.maxActive - (bossActive ? 1 : 0));
+    return Math.min(capacity, base + tierBonus);
   }
 
   dispose(): void {
