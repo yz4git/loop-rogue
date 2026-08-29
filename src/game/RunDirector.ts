@@ -1,3 +1,5 @@
+import { GAME_CONFIG } from "../core/Settings";
+
 export type UpgradeId =
   | "heavy-hands"
   | "shockwave-core"
@@ -72,7 +74,7 @@ interface StoredMeta {
 }
 
 const META_KEY = "loop-rogue:meta-v2";
-const UPGRADE_THRESHOLDS = [90, 220, 390, 610, 880, 1200] as const;
+const UPGRADE_THRESHOLDS = [150, 340, 570, 850, 1180, 1560] as const;
 
 const UPGRADE_CATALOG: readonly UpgradeCard[] = [
   { id: "heavy-hands", title: "HEAVY HANDS", description: "パンチ破壊範囲+18% / 敵ダメージ+1", rarity: "COMMON" },
@@ -81,7 +83,7 @@ const UPGRADE_CATALOG: readonly UpgradeCard[] = [
   { id: "ore-reactor", title: "ORE REACTOR", description: "鉱石・連鎖破壊のMomentum獲得+35%", rarity: "RARE" },
   { id: "combo-repair", title: "COMBO REPAIR", description: "COMBO 4以上の撃破時にHPを回復", rarity: "RARE" },
   { id: "deep-diver", title: "DEEP DIVER", description: "深部ほど移動と破壊が加速する", rarity: "COMMON" },
-  { id: "overdrive", title: "OVERDRIVE", description: "BREAK MODEの持続時間+1.5秒", rarity: "EPIC" },
+  { id: "overdrive", title: "OVERDRIVE", description: "BREAK MODEの持続時間+1.0秒", rarity: "EPIC" },
   { id: "breaker-rhythm", title: "BREAKER RHYTHM", description: "パンチ間隔-16% / リーチ+10%", rarity: "COMMON" },
   { id: "blast-lattice", title: "BLAST LATTICE", description: "鉱石爆発範囲+24% / 敵への押し出し強化", rarity: "RARE" },
   { id: "second-wind", title: "SECOND WIND", description: "取得時にHP回復 / Momentum減衰-15%", rarity: "EPIC" },
@@ -123,7 +125,7 @@ export class RunDirector {
   reset(seed: string, difficulty: "easy" | "normal" | "hard" = "normal"): void {
     this.seed = seed || "run";
     this.difficulty = difficulty;
-    this.momentum = Math.min(24, this.meta.legacyRank * 3);
+    this.momentum = Math.min(18, this.meta.legacyRank * 2);
     this.breakSeconds = 0;
     this.depthTier = 1;
     this.danger = 1;
@@ -147,36 +149,36 @@ export class RunDirector {
   update(delta: number, depthProgress: number, elapsedSeconds: number): void {
     const normalizedDepth = clamp(depthProgress, 0, 1);
     this.maxDepth = Math.max(this.maxDepth, normalizedDepth);
-    const timeProgress = clamp(elapsedSeconds / 600, 0, 1);
-    this.pace = Math.max(normalizedDepth, timeProgress * 0.82);
-    this.depthTier = clamp(1 + Math.floor(this.pace * 5), 1, 6);
+    const timeProgress = clamp(elapsedSeconds / GAME_CONFIG.run.targetSeconds, 0, 1);
+    const depthAssist = normalizedDepth * 0.18;
+    this.pace = clamp(timeProgress * 0.82 + depthAssist, 0, 1);
+    this.depthTier = clamp(1 + Math.floor(this.pace * GAME_CONFIG.run.maxDepthTiers), 1, GAME_CONFIG.run.maxDepthTiers);
     const difficultyBase = this.difficulty === "easy" ? 0.86 : this.difficulty === "hard" ? 1.2 : 1;
-    this.danger = Math.round((difficultyBase * (1 + this.pace * 1.8)) * 100) / 100;
+    this.danger = Math.round((difficultyBase * (1 + this.pace * 1.55)) * 100) / 100;
 
     if (this.isUpgradePending) return;
     if (this.breakSeconds > 0) {
       this.breakSeconds = Math.max(0, this.breakSeconds - delta);
-      if (this.breakSeconds === 0) this.momentum = Math.max(this.momentum, 32);
+      if (this.breakSeconds === 0) this.momentum = 28;
       return;
     }
 
     const modifiers = this.getModifiers();
-    const decay = (5.2 + this.depthTier * 0.32) * modifiers.momentumDecay * delta;
+    const decay = (7.2 + this.depthTier * 0.45) * modifiers.momentumDecay * delta;
     this.momentum = Math.max(0, this.momentum - decay);
-    if (this.momentum >= 100) this.activateBreakMode();
   }
 
   recordDestruction(destroyed: number, oreDestroyed: number): void {
     if (destroyed <= 0 && oreDestroyed <= 0) return;
     const modifiers = this.getModifiers();
-    this.runXp += destroyed * 1.45 + oreDestroyed * 14;
-    this.addMomentum((destroyed * 2.4 + oreDestroyed * 12) * modifiers.momentumGain);
+    this.runXp += destroyed * 0.42 + oreDestroyed * 8;
+    this.addMomentum((destroyed * 0.9 + oreDestroyed * 9.5) * modifiers.momentumGain);
     this.checkUpgradeThreshold();
   }
 
   recordEnemyDefeat(isBoss = false): void {
-    this.runXp += isBoss ? 220 : 48;
-    this.addMomentum(isBoss ? 65 : 24);
+    this.runXp += isBoss ? 260 : 62;
+    this.addMomentum(isBoss ? 62 : 22);
     if (isBoss) {
       this.bossActive = false;
       this.bossDefeated = true;
@@ -186,8 +188,8 @@ export class RunDirector {
   }
 
   recordGroundPound(destroyed: number, enemiesHit: number): void {
-    this.runXp += destroyed * 1.1 + enemiesHit * 24;
-    this.addMomentum(8 + destroyed * 1.4 + enemiesHit * 14);
+    this.runXp += destroyed * 0.16 + enemiesHit * 18;
+    this.addMomentum(5 + destroyed * 0.38 + enemiesHit * 10);
     this.checkUpgradeThreshold();
   }
 
@@ -205,8 +207,10 @@ export class RunDirector {
 
   shouldSpawnBoss(depthProgress: number, elapsedSeconds: number): boolean {
     if (this.bossActive || this.bossDefeated) return false;
-    const enoughGrowth = this.runLevel >= 2 || this.runXp >= 360;
-    return enoughGrowth && (depthProgress >= 0.72 || elapsedSeconds >= 480);
+    const enoughGrowth = this.runLevel >= 4 || this.runXp >= UPGRADE_THRESHOLDS[3];
+    const deepAndLate = elapsedSeconds >= GAME_CONFIG.run.bossEarliestSeconds && depthProgress >= GAME_CONFIG.run.bossDepthRatio;
+    const forceByClock = elapsedSeconds >= GAME_CONFIG.run.bossForceSeconds;
+    return enoughGrowth && (deepAndLate || forceByClock);
   }
 
   beginBoss(maxHp: number): void {
@@ -214,7 +218,7 @@ export class RunDirector {
     this.bossDefeated = false;
     this.bossMaxHp = Math.max(1, maxHp);
     this.bossHp = this.bossMaxHp;
-    this.addMomentum(20);
+    this.addMomentum(18);
   }
 
   updateBossHp(hp: number, maxHp = this.bossMaxHp): void {
@@ -257,21 +261,21 @@ export class RunDirector {
     const secondWind = count("second-wind");
     const legacy = this.meta.legacyRank;
     const breakActive = this.breakSeconds > 0;
-    const deepScale = 1 + diver * Math.max(0, this.depthTier - 1) * 0.025;
+    const deepScale = 1 + diver * Math.max(0, this.depthTier - 1) * 0.02;
 
     return {
-      moveSpeed: (1 + legacy * 0.015 + rush * 0.14) * deepScale * (breakActive ? 1.55 : 1),
-      acceleration: (1 + rush * 0.18) * (breakActive ? 1.3 : 1),
-      jumpVelocity: 1 + rush * 0.04 + (breakActive ? 0.08 : 0),
-      punchCooldown: Math.max(0.42, 1 - rhythm * 0.16) * (breakActive ? 0.58 : 1),
-      punchRange: 1 + rhythm * 0.1 + (breakActive ? 0.08 : 0),
-      punchRadius: (1 + heavy * 0.18) * deepScale * (breakActive ? 1.36 : 1),
-      groundPoundRadius: (1 + shockwave * 0.28) * deepScale * (breakActive ? 1.3 : 1),
-      blastRadius: (1 + blast * 0.24) * (breakActive ? 1.18 : 1),
+      moveSpeed: (1 + legacy * 0.012 + rush * 0.12) * deepScale * (breakActive ? 1.38 : 1),
+      acceleration: (1 + rush * 0.16) * (breakActive ? 1.22 : 1),
+      jumpVelocity: 1 + rush * 0.04 + (breakActive ? 0.06 : 0),
+      punchCooldown: Math.max(0.46, 1 - rhythm * 0.15) * (breakActive ? 0.68 : 1),
+      punchRange: 1 + rhythm * 0.1 + (breakActive ? 0.06 : 0),
+      punchRadius: (1 + heavy * 0.18) * deepScale * (breakActive ? 1.25 : 1),
+      groundPoundRadius: (1 + shockwave * 0.24) * deepScale * (breakActive ? 1.18 : 1),
+      blastRadius: (1 + blast * 0.24) * (breakActive ? 1.12 : 1),
       enemyDamage: 1 + heavy + (breakActive ? 2 : 0),
-      enemyKnockback: 1 + blast * 0.22 + (breakActive ? 0.65 : 0),
-      momentumGain: 1 + reactor * 0.35 + legacy * 0.015,
-      momentumDecay: Math.max(0.5, 1 - secondWind * 0.15 - overdrive * 0.05),
+      enemyKnockback: 1 + blast * 0.22 + (breakActive ? 0.5 : 0),
+      momentumGain: 1 + reactor * 0.28 + legacy * 0.012,
+      momentumDecay: Math.max(0.58, 1 - secondWind * 0.15 - overdrive * 0.04),
       healOnCombo: repair > 0 ? 2 + repair : 0,
     };
   }
@@ -294,7 +298,7 @@ export class RunDirector {
       bossHp: this.bossHp,
       bossMaxHp: this.bossMaxHp,
       meta: this.meta,
-      targetSeconds: 600,
+      targetSeconds: GAME_CONFIG.run.targetSeconds,
       pace: Math.round(this.pace * 100),
     };
   }
@@ -306,7 +310,7 @@ export class RunDirector {
 
   private addMomentum(amount: number): void {
     if (this.breakSeconds > 0) {
-      this.breakSeconds = Math.min(this.breakDuration() + 2.5, this.breakSeconds + amount * 0.008);
+      this.breakSeconds = Math.min(this.breakDuration() + 1.1, this.breakSeconds + amount * 0.0035);
       return;
     }
     this.momentum = clamp(this.momentum + Math.max(0, amount), 0, 100);
@@ -320,7 +324,7 @@ export class RunDirector {
 
   private breakDuration(): number {
     const overdrive = this.upgrades.filter((upgrade) => upgrade === "overdrive").length;
-    return 5.5 + overdrive * 1.5 + this.meta.legacyRank * 0.12;
+    return 3.8 + overdrive * 1.0 + this.meta.legacyRank * 0.08;
   }
 
   private checkUpgradeThreshold(): void {
