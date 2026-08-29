@@ -22,6 +22,7 @@ export class CameraController {
   private readonly logicalPosition = new THREE.Vector3();
   private readonly smoothedPosition = new THREE.Vector3();
   private readonly direction = new THREE.Vector3();
+  private readonly firstPersonLook = new THREE.Vector3();
   private readonly solver: CameraCollisionSolver;
   private recenterTargetYaw = Math.PI;
   private recenterRemaining = 0;
@@ -166,10 +167,17 @@ export class CameraController {
       this.actualDistance = desiredDistance;
     }
 
-    this.logicalPosition.copy(this.target).addScaledVector(this.direction, this.actualDistance);
-    const followAlpha = 1 - Math.exp(-GAME_CONFIG.camera.followSpeed * delta);
-    this.smoothedPosition.lerp(this.logicalPosition, followAlpha);
-    this.camera.position.copy(this.smoothedPosition);
+    const closeView = this.actualDistance < 1.2;
+    if (closeView) {
+      this.camera.position.copy(playerPosition);
+      this.camera.position.y += 1.12;
+      this.smoothedPosition.copy(this.camera.position);
+    } else {
+      this.logicalPosition.copy(this.target).addScaledVector(this.direction, this.actualDistance);
+      const followAlpha = 1 - Math.exp(-GAME_CONFIG.camera.followSpeed * delta);
+      this.smoothedPosition.lerp(this.logicalPosition, followAlpha);
+      this.camera.position.copy(this.smoothedPosition);
+    }
 
     if (now < this.shakeUntil) {
       const falloff = Math.min(1, (this.shakeUntil - now) / 180);
@@ -178,7 +186,12 @@ export class CameraController {
     } else {
       this.shakeStrength = 0;
     }
-    this.camera.lookAt(this.target);
+    if (closeView) {
+      this.firstPersonLook.copy(this.camera.position).addScaledVector(this.direction, -8);
+      this.camera.lookAt(this.firstPersonLook);
+    } else {
+      this.camera.lookAt(this.target);
+    }
   }
 
   private approachAngle(current: number, target: number, alpha: number): number {

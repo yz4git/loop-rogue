@@ -14,7 +14,7 @@ export const GAME_CONFIG = {
   destruction: {
     punchRadius: 2.0,
     maxPunchVoxels: 56,
-    punchRange: 2.85,
+    punchRange: 3.15,
     punchCooldown: 0.29,
     groundPoundRadius: 2.7,
     maxGroundPoundVoxels: 78,

@@ -188,3 +188,14 @@ test("runtime exposes close-camera avatar fallback and shared contact grace", ()
   assert.match(enemies, /playerContactCooldown/);
   assert.match(enemies, /1\.35/);
 });
+
+
+test("contact attacks recoil before re-engaging and tight camera becomes true first person", () => {
+  const enemy = readFileSync(new URL("../src/enemies/EnemyManager.ts", import.meta.url), "utf8");
+  const camera = readFileSync(new URL("../src/camera/CameraController.ts", import.meta.url), "utf8");
+  assert.match(enemy, /recoil/);
+  assert.match(enemy, /1\.65/);
+  assert.match(camera, /closeView/);
+  assert.match(camera, /firstPersonLook/);
+  assert.match(camera, /addScaledVector\(this\.direction, -8\)/);
+});

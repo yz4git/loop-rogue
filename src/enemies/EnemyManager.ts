@@ -151,10 +151,17 @@ export class EnemyManager {
       const contactRange = enemy.boss ? 1.45 : enemy.type === "brute" ? 1.08 : GAME_CONFIG.enemies.contactRange;
       if (distance <= contactRange) {
         if (enemy.hitCooldown <= 0 && this.playerContactCooldown <= 0) {
-          enemy.hitCooldown = enemy.boss ? 0.82 : GAME_CONFIG.enemies.contactCooldown;
+          enemy.hitCooldown = enemy.boss ? 1.1 : enemy.type === "brute" ? 1.8 : 1.65;
           this.playerContactCooldown = enemy.boss ? 0.8 : 1.35;
           const damage = enemy.boss ? 2 : enemy.type === "brute" ? 2 : 1;
           this.callbacks.onPlayerContact(enemy.mesh.position, damage);
+          if (distance > 0.01) {
+            const recoil = enemy.boss ? 0.55 : enemy.type === "brute" ? 0.82 : 1.15;
+            const retreat = this.alternate.copy(enemy.mesh.position).addScaledVector(toPlayer, -recoil / distance);
+            const radius = enemy.boss ? 0.68 : 0.32;
+            const height = enemy.boss ? 1.45 : 0.8;
+            if (!this.world.collidesAabb(retreat, radius, height)) enemy.mesh.position.copy(retreat);
+          }
           if ((enemy.boss || enemy.type === "bomber") && enemy.terrainCooldown <= 0) {
             enemy.terrainCooldown = enemy.boss ? 1.35 : 2.4;
             this.callbacks.onEnemyTerrainImpact?.(enemy.mesh.position.clone(), enemy.boss ? 2.25 : 1.35, enemy.boss ? 2 : 1);
