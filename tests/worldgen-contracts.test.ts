@@ -1,7 +1,39 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { VoxelType } from "../src/world/VoxelDefinitions";
+import { checkDigReachability } from "../src/worldgen/Reachability";
 import { ProceduralStageSource, WORLD_GENERATOR_VERSION } from "../src/stages/ProceduralStageSource";
+import { createStageArray, setStageVoxel } from "../src/stages/StageSource";
+
+test("weighted reachability prefers the cheaper dig route without queue overflow", () => {
+  const width = 9;
+  const height = 5;
+  const depth = 9;
+  const types = createStageArray(width, height, depth);
+  for (let z = 0; z < depth; z += 1) {
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const edge = x === 0 || y === 0 || z === 0 || x === width - 1 || y === height - 1 || z === depth - 1;
+        setStageVoxel(types, width, height, depth, x, y, z, edge ? VoxelType.Bedrock : VoxelType.Rock);
+      }
+    }
+  }
+  for (let z = 1; z <= 7; z += 1) setStageVoxel(types, width, height, depth, 2, 2, z, VoxelType.Empty);
+  for (let x = 2; x <= 6; x += 1) setStageVoxel(types, width, height, depth, x, 2, 7, VoxelType.Empty);
+
+  const result = checkDigReachability(
+    types,
+    width,
+    height,
+    depth,
+    { x: 2.5, y: 2.5, z: 1.5 },
+    { x: 6.5, y: 2.5, z: 7.5 },
+    120,
+  );
+  assert.equal(result.reachable, true);
+  assert.equal(result.cost, 10);
+  assert.ok(result.visited <= width * height * depth);
+});
 
 test("WorldGenerator v3 is deterministic and emits BREAK setpieces", () => {
   assert.equal(WORLD_GENERATOR_VERSION, 3);
