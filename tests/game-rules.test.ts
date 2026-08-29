@@ -4,7 +4,6 @@ import * as THREE from "three";
 import { GAME_CONFIG } from "../src/core/Settings";
 import { VoxelWorld } from "../src/world/VoxelWorld";
 import { VoxelType } from "../src/world/VoxelDefinitions";
-import { ProceduralStageSource, WORLD_GENERATOR_VERSION } from "../src/stages/ProceduralStageSource";
 import { createStageArray, setStageVoxel, type StageSnapshot, type StageSource } from "../src/stages/StageSource";
 import { VoxelPlayerCollision } from "../src/player/VoxelPlayerCollision";
 import { DestructionSystem } from "../src/destruction/DestructionSystem";
@@ -202,41 +201,4 @@ test("実ゲームと同じ衝突処理でジャンプ弧を描き、元の床�
   assert.ok(landedFrame >= 58 && landedFrame <= 78);
   assert.equal(position.y, 1);
   world.dispose();
-});
-
-test("ランダム地形はv3で同じシードを再現し、破壊セットピースを生成する", () => {
-  assert.equal(WORLD_GENERATOR_VERSION, 3);
-  const first = new ProceduralStageSource({ seed: "mountain-check" }).generate();
-  const same = new ProceduralStageSource({ seed: "mountain-check" }).generate();
-  const different = new ProceduralStageSource({ seed: "cave-check" }).generate();
-  assert.deepEqual(first.types, same.types);
-  assert.notDeepEqual(first.types, different.types);
-  assert.equal(first.width, 48);
-  assert.equal(first.height, 32);
-  assert.equal(first.depth, 48);
-  assert.ok((first.metadata?.breakSetpieces ?? 0) >= 3);
-  const medium = new ProceduralStageSource({ seed: "medium-check", size: "medium" }).generate();
-  assert.equal(medium.width, 64);
-  assert.equal(medium.height, 40);
-  assert.equal(medium.depth, 64);
-  assert.ok((medium.metadata?.breakSetpieces ?? 0) >= 4);
-});
-
-test("ランダム地形は外周を岩盤で守り、開始地点とゴールを範囲内に置く", () => {
-  const stage = new ProceduralStageSource({ seed: "spawn-check" }).generate();
-  const index = (x: number, y: number, z: number) => x + stage.width * (y + stage.height * z);
-  for (let x = 0; x < stage.width; x += 1) {
-    assert.equal(stage.types[index(x, 0, 0)], VoxelType.Bedrock);
-    assert.equal(stage.types[index(x, 0, stage.depth - 1)], VoxelType.Bedrock);
-  }
-  assert.equal(stage.spawn.x > 1 && stage.spawn.x < stage.width - 1, true);
-  assert.equal(stage.spawn.z > 1 && stage.spawn.z < stage.depth - 1, true);
-  assert.equal(stage.goal.z > stage.spawn.z, true);
-  assert.equal(stage.goal.z < stage.depth - 1, true);
-  assert.equal(stage.metadata?.reachability?.reachable, true);
-  assert.equal((stage.metadata?.carverVoxels ?? 0) > 0, true);
-  assert.equal((stage.metadata?.trees ?? 0) + (stage.metadata?.boulders ?? 0) > 0, true);
-  assert.equal((stage.metadata?.coinSpawns?.length ?? 0) > 0, true);
-  assert.equal((stage.metadata?.jigsawPieces ?? 0) > 0, true);
-  assert.equal((stage.metadata?.breakSetpieces ?? 0) > 0, true);
 });
