@@ -216,17 +216,19 @@ export class EnemyManager {
         this.callbacks.onEnemyTerrainImpact?.(enemy.mesh.position.clone(), enemy.boss ? 1.8 : 1.25, 1);
       }
     }
+    const wasBoss = enemy.boss;
     const result: EnemyDamageResult = {
       enemy,
       hitPoint: hitPoint.clone(),
       position: enemy.mesh.position.clone(),
       defeated: enemy.hp <= 0,
       wallSlam,
-      boss: enemy.boss,
+      boss: wasBoss,
       maxHp: enemy.maxHp,
     };
     if (result.defeated) enemy.mesh.visible = false;
     this.callbacks.onEnemyDamaged(result);
+    if (result.defeated && wasBoss) this.recycleBossSlot(enemy);
     return result;
   }
 
@@ -276,6 +278,21 @@ export class EnemyManager {
     const point = (pool[index % Math.max(1, pool.length)] ?? this.fallbackSpawn(index)).clone();
     for (let rise = 0; rise < 4 && this.world.collidesAabb(point, 0.32, 0.8); rise += 1) point.y += 1;
     return point;
+  }
+
+  private recycleBossSlot(enemy: EnemyState): void {
+    const index = Math.max(0, this.enemies.indexOf(enemy));
+    const type = TYPE_ORDER[index % TYPE_ORDER.length];
+    enemy.type = type;
+    enemy.boss = false;
+    enemy.mesh.material = this.materials[type];
+    enemy.mesh.scale.setScalar(type === "brute" ? 1.35 : type === "bomber" ? 0.9 : 1);
+    enemy.mesh.visible = false;
+    enemy.maxHp = this.hpForType(type);
+    enemy.hp = enemy.maxHp;
+    enemy.hitCooldown = 0;
+    enemy.terrainCooldown = 0;
+    this.reinforcementCooldown = Math.min(this.reinforcementCooldown, 1.25);
   }
 
   private configureRegularEnemy(
