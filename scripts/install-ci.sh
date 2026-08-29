@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "${SITES_ENV_READY:-}" != "1" ]]; then
-  exec "${script_dir}/sites-env.sh" -- "$0" "$@"
+  exec bash "${script_dir}/sites-env.sh" -- "$0" "$@"
 fi
 
 command -v flock >/dev/null || {
@@ -49,8 +49,6 @@ if ! flock -n 9; then
   exit 75
 fi
 
-# Catch an installer started outside this helper. Linux exposes both its command
-# line and working directory through /proc, so avoid broad process-name matches.
 for process in /proc/[0-9]*; do
   pid="${process##*/}"
   [[ "${pid}" != "$$" && "${pid}" != "${PPID}" ]] || continue
@@ -78,112 +76,41 @@ if [[ -n "${seed_cache}" && -d "${seed_cache}" ]]; then
   fi
 fi
 
-locked_vinext_output="$({ node --input-type=module - "${SITES_PROJECT_ROOT}/package-lock.json" <<'NODE'
-import { readFile } from "node:fs/promises";
-
-const lock = JSON.parse(await readFile(process.argv[2], "utf8"));
-const vinext = lock.packages?.["node_modules/vinext"];
-if (!vinext?.resolved || !vinext?.integrity) {
-  throw new Error("package-lock.json does not contain a resolved, integrity-pinned vinext tarball");
-}
-console.log(vinext.resolved);
-console.log(vinext.integrity);
-NODE
-} 2>/dev/null)" || {
-  echo "Could not read the integrity-pinned vinext tarball from package-lock.json." >&2
-  exit 65
-}
-mapfile -t locked_vinext <<<"${locked_vinext_output}"
-if [[ "${#locked_vinext[@]}" -ne 2 ]]; then
-  echo "Expected exactly one Vinext URL and integrity value from package-lock.json." >&2
-  exit 65
+registry_host="${SITES_NPM_REGISTRY_HOST:-registry.npmjs.org}"
+registry_url="${SITES_NPM_REGISTRY_URL:-https://${registry_host}}"
+network_available=0
+if curl --silent --show-error --fail --head --connect-timeout 8 --max-time 15 "${registry_url}/" >/dev/null 2>&1; then
+  network_available=1
 fi
 
-locked_tarball="${locked_vinext[0]}"
-locked_integrity="${locked_vinext[1]}"
-
-if [[ "${use_seeded_cache}" == "0" ]]; then
-  registry="$(npm config get registry)"
-  preflight_url="$({ node --input-type=module - "${locked_tarball}" "${registry}" <<'NODE'
-const locked = new URL(process.argv[2]);
-const registry = new URL(process.argv[3]);
-if (locked.hostname === "registry.npmjs.org") {
-  locked.protocol = registry.protocol;
-  locked.host = registry.host;
-  locked.pathname = `${registry.pathname.replace(/\/$/, "")}${locked.pathname}`;
-}
-process.stdout.write(locked.href);
-NODE
-} 2>/dev/null)" || {
-  echo "Could not construct the locked-tarball preflight URL." >&2
-  exit 65
-  }
-
-  preflight_dir="${runtime_root}/preflight"
-  preflight_tarball="${preflight_dir}/vinext.tgz"
-  mkdir -p "${preflight_dir}"
-
-  echo "[sites] downloading the complete locked vinext tarball"
-  curl \
-    --fail \
-    --location \
-    --silent \
-    --show-error \
-    --retry 0 \
-    --connect-timeout 15 \
-    --max-time 120 \
-    --output "${preflight_tarball}" \
-    "${preflight_url}"
-
-  echo "[sites] verifying locked vinext tarball integrity"
-  node --input-type=module - "${preflight_tarball}" "${locked_integrity}" <<'NODE'
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-
-const [algorithm, expected] = process.argv[3].split("-", 2);
-if (!algorithm || !expected) {
-  throw new Error(`unsupported integrity value: ${process.argv[3]}`);
-}
-const actual = createHash(algorithm)
-  .update(await readFile(process.argv[2]))
-  .digest("base64");
-if (actual !== expected) {
-  throw new Error(`vinext tarball integrity mismatch for ${algorithm}`);
-}
-NODE
-  echo "[sites] network and integrity preflight passed"
-fi
-
-echo "[sites] running exactly one bounded npm ci"
-export NPM_CONFIG_MAXSOCKETS=1
-export NPM_CONFIG_FETCH_RETRIES=0
-export NPM_CONFIG_FETCH_TIMEOUT=30000
-npm_ci_args=(ci --cache "${expected_cache}")
-if [[ "${use_seeded_cache}" == "1" ]]; then
-  npm_ci_args+=(--prefer-offline)
-fi
-timeout \
-  --signal=TERM \
-  --kill-after="${SITES_INSTALL_KILL_AFTER:-15s}" \
-  "${SITES_INSTALL_TIMEOUT:-8m}" \
-  npm "${npm_ci_args[@]}"
-
-vinext="${SITES_PROJECT_ROOT}/node_modules/.bin/vinext"
-if [[ ! -x "${vinext}" ]]; then
-  echo "npm ci exited successfully but node_modules/.bin/vinext is unavailable." >&2
+if [[ "${use_seeded_cache}" -eq 0 && "${network_available}" -eq 0 ]]; then
+  echo "The npm registry is unavailable and no matching seeded cache was provided." >&2
   exit 69
 fi
 
-node --input-type=module - "${SITES_PROJECT_ROOT}/node_modules/.sites-install.json" "${lockfile_sha256}" <<'NODE'
-import { writeFile } from "node:fs/promises";
+install_timeout="${SITES_INSTALL_TIMEOUT:-4m}"
+install_kill_after="${SITES_INSTALL_KILL_AFTER:-10s}"
+install_args=(ci --ignore-scripts --no-audit --no-fund)
+if [[ "${network_available}" -eq 0 ]]; then
+  install_args+=(--offline)
+else
+  install_args+=(--prefer-offline)
+fi
 
-await writeFile(
-  process.argv[2],
-  `${JSON.stringify({
-    lockfile_sha256: process.argv[3],
-    node: process.version,
-    platform: `${process.platform}-${process.arch}`,
-  }, null, 2)}\n`,
-);
-NODE
-echo "[sites] npm ci passed and vinext is available"
+echo "[sites] running npm ${install_args[*]} with timeout ${install_timeout}"
+timeout --signal=TERM --kill-after="${install_kill_after}" "${install_timeout}" npm "${install_args[@]}"
+
+if [[ ! -d "${SITES_PROJECT_ROOT}/node_modules" ]]; then
+  echo "npm ci reported success but node_modules is missing." >&2
+  exit 70
+fi
+
+installed_typescript="${SITES_PROJECT_ROOT}/node_modules/.bin/tsc"
+installed_vinext="${SITES_PROJECT_ROOT}/node_modules/.bin/vinext"
+if [[ ! -x "${installed_typescript}" || ! -x "${installed_vinext}" ]]; then
+  echo "Expected project executables are missing after install." >&2
+  exit 70
+fi
+
+printf '%s\n' "${lockfile_sha256}" >"${expected_cache}/.sites-lockfile-sha256"
+echo "[sites] install verified"
