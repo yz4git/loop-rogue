@@ -51,6 +51,7 @@ RUN中は決定論的な3択から強化を選びます。現在の例：
 - Bomber：高速接近し、周囲の地形にも爆発作用
 - Brute：高耐久・高接触ダメージ・壁破壊
 - Depth Boss：大型、高HP、地形を壊しながら追跡
+- Depth Reinforcement：敵撃破後もDEPTH TIERに応じて増援され、深部ほど最大同時数・敵種・HP圧が上昇
 - Wall Slam：敵を壁へ吹き飛ばすと追加ダメージ＋壁破壊
 - Ore Chain：鉱石爆発が周囲の地形と敵を巻き込む
 
@@ -80,7 +81,7 @@ BreakSetpiecePassは現在、薄い壁の奥へ鉱石を隠す `Ore Vault`、Gro
 - `GameRuntime`：ゲーム全体のcomposition root
 - `RunDirector`：Momentum、BREAK MODE、RUN XP、3択強化、深度DANGER、ボス、メタ進行
 - `PlayerController / PlayerCombat`：移動・ジャンプ・攻撃・Ground Slam
-- `EnemyManager`：プール、AI、地形連動敵、ボス
+- `EnemyManager`：プール、AI、深度増援、地形連動敵、ボス
 - `DestructionSystem`：ボクセル耐久、範囲破壊、鉱石連鎖
 - `WorldGenerator`：決定論的Passベース生成
 - `GameViewState`：描画/UIとの状態契約
