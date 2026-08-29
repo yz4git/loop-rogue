@@ -33,8 +33,7 @@ jobs:
 
           enemy_path = Path('src/enemies/EnemyManager.ts')
           enemy = enemy_path.read_text()
-          marker = '''  private maintainPopulation(playerPosition: THREE.Vector3): void {
-          '''
+          marker = '  private maintainPopulation(playerPosition: THREE.Vector3): void {\n'
           method = '''  triggerDepthSurge(playerPosition: THREE.Vector3, tier = this.depthTier): number {
             this.depthTier = Math.max(this.depthTier, Math.floor(tier));
             const bossActive = this.bossState !== null;
@@ -69,42 +68,40 @@ jobs:
           runtime_path = Path('src/core/GameRuntime.ts')
           runtime = runtime_path.read_text()
           field_marker = '  private lastBreakMode = false;\n  private runEndRecorded = false;'
-          field_replace = '  private lastBreakMode = false;\n  private lastDepthTier = 1;\n  private runEndRecorded = false;'
           if runtime.count(field_marker) != 1:
               raise SystemExit('GameRuntime field marker changed')
-          runtime = runtime.replace(field_marker, field_replace)
+          runtime = runtime.replace(field_marker, '  private lastBreakMode = false;\n  private lastDepthTier = 1;\n  private runEndRecorded = false;')
 
           reset_marker = '    this.runEndRecorded = false;\n    this.lastBreakMode = false;'
-          reset_replace = '    this.runEndRecorded = false;\n    this.lastBreakMode = false;\n    this.lastDepthTier = 1;'
           if runtime.count(reset_marker) != 1:
               raise SystemExit('GameRuntime reset marker changed')
-          runtime = runtime.replace(reset_marker, reset_replace)
+          runtime = runtime.replace(reset_marker, '    this.runEndRecorded = false;\n    this.lastBreakMode = false;\n    this.lastDepthTier = 1;')
 
-          sync_marker = '''  private syncRunTransitions(): void {
-            const run = this.runDirector.snapshot;
-            if (run.breakMode !== this.lastBreakMode) {
-          '''
-          sync_replace = '''  private syncRunTransitions(): void {
-            const run = this.runDirector.snapshot;
-            if (run.depthTier > this.lastDepthTier) {
-              this.lastDepthTier = run.depthTier;
-              const spawned = this.enemyManager.triggerDepthSurge(this.player.position, run.depthTier);
-              this.cameraController.addShake(300, 0.14);
-              this.setMessage(`DEPTH TIER ${run.depthTier} · DANGER SURGE${spawned > 0 ? ` · +${spawned} ENEMIES` : ""}`);
-            }
-            if (run.breakMode !== this.lastBreakMode) {
-          '''
-          if runtime.count(sync_marker) != 1:
-              raise SystemExit('GameRuntime transition marker changed')
-          runtime = runtime.replace(sync_marker, sync_replace)
-          runtime_path.write_text(runtime)
+          lines = runtime.splitlines()
+          hits = [i for i, line in enumerate(lines) if line.strip() == 'private syncRunTransitions(): void {']
+          if len(hits) != 1:
+              raise SystemExit(f'syncRunTransitions matched {len(hits)} times')
+          sync = hits[0]
+          if lines[sync + 1].strip() != 'const run = this.runDirector.snapshot;' or lines[sync + 2].strip() != 'if (run.breakMode !== this.lastBreakMode) {':
+              raise SystemExit('syncRunTransitions opening shape changed')
+          indent = lines[sync + 1][:len(lines[sync + 1]) - len(lines[sync + 1].lstrip())]
+          insertion = [
+              indent + 'if (run.depthTier > this.lastDepthTier) {',
+              indent + '  this.lastDepthTier = run.depthTier;',
+              indent + '  const spawned = this.enemyManager.triggerDepthSurge(this.player.position, run.depthTier);',
+              indent + '  this.cameraController.addShake(300, 0.14);',
+              indent + '  this.setMessage(`DEPTH TIER ${run.depthTier} · DANGER SURGE${spawned > 0 ? ` · +${spawned} ENEMIES` : ""}`);',
+              indent + '}',
+          ]
+          lines[sync + 2:sync + 2] = insertion
+          runtime_path.write_text('\n'.join(lines) + '\n')
 
           tests_path = Path('tests/runtime-contracts.test.ts')
           tests = tests_path.read_text()
           title = 'EnemyManager creates an immediate reinforcement surge on a new depth tier'
           if title in tests:
               raise SystemExit('depth surge regression test already exists')
-          insertion = '''\n\ntest("EnemyManager creates an immediate reinforcement surge on a new depth tier", () => {
+          tests += '''\n\ntest("EnemyManager creates an immediate reinforcement surge on a new depth tier", () => {
             const world = new VoxelWorld();
             const scene = new THREE.Scene();
             const player = new THREE.Group();
@@ -130,7 +127,6 @@ jobs:
             assert.match(runtime, /DANGER SURGE/);
             assert.match(runtime, /lastDepthTier/);
           });\n'''
-          tests += insertion
           tests_path.write_text(tests)
           PY
       - name: Install
