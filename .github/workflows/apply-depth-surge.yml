@@ -1,0 +1,150 @@
+name: apply depth surge
+
+on:
+  push:
+    branches:
+      - work/depth-surge-20260830
+    paths:
+      - .github/workflows/apply-depth-surge.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: work/depth-surge-20260830
+          persist-credentials: true
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply guarded depth surge patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          enemy_path = Path('src/enemies/EnemyManager.ts')
+          enemy = enemy_path.read_text()
+          marker = '''  private maintainPopulation(playerPosition: THREE.Vector3): void {
+          '''
+          method = '''  triggerDepthSurge(playerPosition: THREE.Vector3, tier = this.depthTier): number {
+            this.depthTier = Math.max(this.depthTier, Math.floor(tier));
+            const bossActive = this.bossState !== null;
+            const capacity = Math.max(1, GAME_CONFIG.enemies.maxActive - (bossActive ? 1 : 0));
+            const target = Math.min(capacity, this.getRegularPopulationTarget(bossActive) + 1);
+            let activeRegular = this.enemies.reduce(
+              (count, enemy) => count + (enemy.mesh.visible && !enemy.boss ? 1 : 0),
+              0,
+            );
+            const before = activeRegular;
+            if (activeRegular < target) {
+              const spawnPoints = this.getSpawnPoints();
+              for (let index = 0; index < this.enemies.length && activeRegular < target; index += 1) {
+                const enemy = this.enemies[index];
+                if (enemy.mesh.visible || enemy.boss) continue;
+                const type = TYPE_ORDER[(index + this.depthTier + 1) % TYPE_ORDER.length];
+                const spawn = this.selectReinforcementSpawn(spawnPoints, playerPosition, index);
+                this.configureRegularEnemy(enemy, type, spawn, true, 0.18 + index * 0.03);
+                activeRegular += 1;
+              }
+            }
+            this.reinforcementCooldown = Math.min(this.reinforcementCooldown, 1.1);
+            return activeRegular - before;
+          }
+
+          '''
+          if enemy.count(marker) != 1 or 'triggerDepthSurge(' in enemy:
+              raise SystemExit('EnemyManager insertion target changed or surge already exists')
+          enemy = enemy.replace(marker, method + marker)
+          enemy_path.write_text(enemy)
+
+          runtime_path = Path('src/core/GameRuntime.ts')
+          runtime = runtime_path.read_text()
+          field_marker = '  private lastBreakMode = false;\n  private runEndRecorded = false;'
+          field_replace = '  private lastBreakMode = false;\n  private lastDepthTier = 1;\n  private runEndRecorded = false;'
+          if runtime.count(field_marker) != 1:
+              raise SystemExit('GameRuntime field marker changed')
+          runtime = runtime.replace(field_marker, field_replace)
+
+          reset_marker = '    this.runEndRecorded = false;\n    this.lastBreakMode = false;'
+          reset_replace = '    this.runEndRecorded = false;\n    this.lastBreakMode = false;\n    this.lastDepthTier = 1;'
+          if runtime.count(reset_marker) != 1:
+              raise SystemExit('GameRuntime reset marker changed')
+          runtime = runtime.replace(reset_marker, reset_replace)
+
+          sync_marker = '''  private syncRunTransitions(): void {
+            const run = this.runDirector.snapshot;
+            if (run.breakMode !== this.lastBreakMode) {
+          '''
+          sync_replace = '''  private syncRunTransitions(): void {
+            const run = this.runDirector.snapshot;
+            if (run.depthTier > this.lastDepthTier) {
+              this.lastDepthTier = run.depthTier;
+              const spawned = this.enemyManager.triggerDepthSurge(this.player.position, run.depthTier);
+              this.cameraController.addShake(300, 0.14);
+              this.setMessage(`DEPTH TIER ${run.depthTier} · DANGER SURGE${spawned > 0 ? ` · +${spawned} ENEMIES` : ""}`);
+            }
+            if (run.breakMode !== this.lastBreakMode) {
+          '''
+          if runtime.count(sync_marker) != 1:
+              raise SystemExit('GameRuntime transition marker changed')
+          runtime = runtime.replace(sync_marker, sync_replace)
+          runtime_path.write_text(runtime)
+
+          tests_path = Path('tests/runtime-contracts.test.ts')
+          tests = tests_path.read_text()
+          title = 'EnemyManager creates an immediate reinforcement surge on a new depth tier'
+          if title in tests:
+              raise SystemExit('depth surge regression test already exists')
+          insertion = '''\n\ntest("EnemyManager creates an immediate reinforcement surge on a new depth tier", () => {
+            const world = new VoxelWorld();
+            const scene = new THREE.Scene();
+            const player = new THREE.Group();
+            player.position.set(world.spawnPoint.x, world.spawnPoint.y, world.spawnPoint.z);
+            const manager = new EnemyManager(scene, world, {
+              onPlayerContact: () => undefined,
+              onEnemyDamaged: () => undefined,
+            });
+            manager.reset();
+            manager.setDanger(1.35, 2);
+            const before = manager.activeCount;
+            const spawned = manager.triggerDepthSurge(player.position, 2);
+            assert.ok(spawned >= 1);
+            assert.ok(manager.activeCount > before);
+            assert.ok(manager.activeCount <= GAME_CONFIG.enemies.maxActive);
+            manager.dispose();
+            world.dispose();
+          });
+
+          test("GameRuntime turns depth-tier changes into visible danger surges", () => {
+            const runtime = readFileSync(new URL("../src/core/GameRuntime.ts", import.meta.url), "utf8");
+            assert.match(runtime, /triggerDepthSurge/);
+            assert.match(runtime, /DANGER SURGE/);
+            assert.match(runtime, /lastDepthTier/);
+          });\n'''
+          tests += insertion
+          tests_path.write_text(tests)
+          PY
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Runtime contracts
+        run: node --import tsx tests/runtime-contracts.test.ts
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "yz4git"
+          git config user.email "65384484+yz4git@users.noreply.github.com"
+          git add src/core/GameRuntime.ts src/enemies/EnemyManager.ts tests/runtime-contracts.test.ts
+          git diff --cached --check
+          git commit -m "feat: add depth danger surges"
+          git push origin HEAD:work/depth-surge-20260830
