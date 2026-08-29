@@ -1,71 +1,92 @@
 # Voxel Break Lab
 
-iPhone Safari向けのthree.js製ボクセル破壊アクションゲームです。プレイヤーが三人称視点で地形をパンチし、鉱石・敵・地下ゴールを探索します。通常ステージと、シードから決定論的に生成するランダムステージを同じボクセル破壊基盤で動かします。
+iPhone Safari向けのthree.js製ボクセル破壊アクションローグライトです。地形・鉱石・敵を連続して壊し、Momentumを維持しながら地下深部へ潜る「BREAK RUN」がゲームの中心です。
+
+## BREAK RUN
+
+1ランは約10分を目標にしています。
+
+1. 地形・敵・鉱石を壊して `MOMENTUM` を上げる
+2. 100に到達すると短時間の `BREAK MODE` に突入
+3. BREAK MODE中は移動・攻撃速度・破壊範囲・破壊力が大幅上昇
+4. RUN XPが閾値へ到達すると3択のBREAK MODを選ぶ
+5. 深部へ進むほど `DEPTH TIER / DANGER` が上昇
+6. 地形を掘る敵、爆発型、Bruteなどを地形と組み合わせて倒す
+7. 終盤の `DEPTH BOSS` を撃破し、地下ゴールへ到達する
+8. RUN終了時にCOREを獲得し、LEGACY RANKとして次のランへ一部成長を持ち越す
 
 ## 操作
 
 - 左下の仮想スティック：移動
-- 右側のドラッグ：カメラ回転
-- PUNCH：正面の地形・敵を攻撃
+- 右側ドラッグ：カメラ回転
+- BREAK：正面の地形・敵を攻撃
 - JUMP：ジャンプ
-- 空中PUNCH：地面叩き。着地時に周囲を破壊
-- 全画面：Fullscreen APIまたはSafariのホーム画面追加を利用
-- リセット：現在のステージを再生成
-- 通常ステージ／ランダムステージ：画面上部のステージ選択
-- ランダムステージ：シード、サイズ、難易度、テーマを指定
-- WebGL非対応時はURLに `?test=2d` を付けて2D三軸テスト表示を使用
+- 空中BREAK：Ground Slam。着地時に周囲を広範囲破壊
+- 全画面：Fullscreen APIまたはSafariのホーム画面追加
+- 設定：通常/ランダムステージ、シード、サイズ、難易度、テーマ
+- WebGL非対応時：`?test=2d` でCanvas 3Dフォールバック
 
-入力中はキャンバスのスクロール、範囲選択、標準の長押し操作を抑制しています。iPhoneでは横画面を推奨します。
+入力中はスクロール、範囲選択、標準の長押し操作を抑制しています。iPhoneでは横画面を推奨します。
 
-## 現在のゲーム機能
+## ローグライト強化
 
-- 16×16×16チャンクの立方体ボクセル地形
-- Soil / Rock / Ore / Bedrock / Wood / Leaves
-- 外面だけをチャンク単位のBufferGeometryへ変換
-- 破壊対象のチャンクと境界隣接チャンクだけを再構築
-- プレイヤー移動、加速・減速、重力、ジャンプ、接地、段差、落下復帰
-- パンチ、空中からの地面叩き、攻撃クールダウン、ノックバック
-- 敵の追跡・蛇行移動、接触ダメージ、撃破
-- 鉱石爆発、連鎖破壊、コイン、コンボ、スコア
-- 深度・破壊数・敵撃破数を満たす地下ゴール
-- HP、クリア、ゲームオーバー、リスタート
-- 破片・砂煙・ヒットストップ・カメラシェイク・Web Audio SE
-- WebGLコンテキスト復帰、画面回転、PWA Service Worker
+RUN中は決定論的な3択から強化を選びます。現在の例：
 
-## ランダムステージ
+- `HEAVY HANDS`：パンチ破壊範囲と敵ダメージを強化
+- `SHOCKWAVE CORE`：Ground Slamを大型化
+- `RUSH DRIVE`：移動速度と加速を強化
+- `ORE REACTOR`：鉱石連鎖から得るMomentumを増加
+- `COMBO REPAIR`：高コンボ撃破時にHP回復
+- `DEEP DIVER`：深部ほど移動・破壊性能が上昇
+- `OVERDRIVE`：BREAK MODE延長
+- `BREAKER RHYTHM`：攻撃間隔短縮・リーチ増加
+- `BLAST LATTICE`：鉱石爆発とノックバックを強化
+- `SECOND WIND`：回復とMomentum維持を強化
 
-`ProceduralStageSource` は `WorldGenerator` のPass列を実行します。
+## 敵とボス
 
-1. TerrainPass：Domain Warp付きの複数2Dノイズで高さを生成
+通常の追跡・蛇行敵に加え、地形破壊と直接結びつく敵を実装しています。
+
+- Burrower：壁に阻まれると掘って追跡
+- Bomber：高速接近し、周囲の地形にも爆発作用
+- Brute：高耐久・高接触ダメージ・壁破壊
+- Depth Boss：大型、高HP、地形を壊しながら追跡
+- Wall Slam：敵を壁へ吹き飛ばすと追加ダメージ＋壁破壊
+- Ore Chain：鉱石爆発が周囲の地形と敵を巻き込む
+
+## ランダムステージ / WorldGenerator v3
+
+`ProceduralStageSource` は同じシード・サイズ・難易度・テーマ・生成バージョンから同じステージを生成します。ワールド生成には `Math.random()` を使用しません。
+
+1. TerrainPass：Domain Warp付き2Dノイズ地形
 2. LayerPass：地層、外周岩盤、安全な開始地点、地下ゴール室
 3. CavePass：3Dノイズ洞窟
-4. MainRoutePass：開始地点からゴールへ続く保証Carver
+4. MainRoutePass：開始地点→ゴールの保証Carver
 5. FeaturePass：木、葉、巨岩、露出鉱石
-6. StructurePass：小屋・塔・門と構造物Processor
-7. GameplayPlacementPass：敵、報酬、Jigsaw地下ネットワーク
-8. ValidationPass：掘削到達可能性の検証と限定的フォールバック補修
-9. BiomePass：デバッグ用バイオーム集計
+6. StructurePass：小屋・塔・門
+7. **BreakSetpiecePass**：破壊そのものが遊びになるセットピースを生成
+8. GameplayPlacementPass：敵、報酬、Jigsaw地下ネットワーク
+9. ValidationPass：掘削到達可能性を検証・補修
+10. BiomePass：バイオーム集計
 
-同じシード、サイズ、難易度、テーマ、生成バージョンからは同じボクセル配列を生成します。ワールド生成には `Math.random()` を使用しません。Mediumサイズは選択できますが、iPhone実機の計測なしに性能達成を保証しません。
+BreakSetpiecePassは現在、薄い壁の奥へ鉱石を隠す `Ore Vault`、Ground Slamで落下破壊する `Slam Shaft`、連鎖爆発向けの `Chain Gallery` を決定論的に配置します。
 
-## アーキテクチャ
+## 技術構成
 
-- `src/core/VoxelDemo.ts`：three.jsのScene、Renderer、プレイヤー表示、resize、context lifecycle、フレームループ
-- `src/core/GameRuntime.ts`：ゲーム実行時のシステム接続、状態更新、ステージ切替、ViewState集約
-- `src/player/`：移動、重力、接地、ジャンプ、衝突
-- `src/combat/`：パンチ、空中攻撃、地面叩き、命中判定
-- `src/destruction/`：ボクセル耐久、球状破壊、鉱石、dirty chunk要求
-- `src/input/`：DOMイベントから抽象入力への変換
-- `src/camera/`：三人称追従、手動回転、背面カメラ、衝突、シェイク
-- `src/enemies/`：敵プール、AI、接触、ダメージ、ノックバック
-- `src/items/`：コインプール、出現、取得
-- `src/rewards/` と `src/game/`：報酬とGameSessionのauthoritative state
-- `src/effects/` と `src/audio/`：再利用式演出プールと音
-- `src/world/`：VoxelStorage、VoxelWorld、チャンクメッシュ
-- `src/worldgen/`：決定論的乱数、ノイズ、生成Pass、到達検証
-- `src/ui/`：GameViewStateとUI契約
+- 16×16×16チャンクの立方体ボクセル地形
+- TypedArrayベースのVoxelStorage
+- 外面のみをチャンク単位のBufferGeometryへ変換
+- 破壊チャンク＋境界隣接チャンクだけ再構築
+- `GameRuntime`：ゲーム全体のcomposition root
+- `RunDirector`：Momentum、BREAK MODE、RUN XP、3択強化、深度DANGER、ボス、メタ進行
+- `PlayerController / PlayerCombat`：移動・ジャンプ・攻撃・Ground Slam
+- `EnemyManager`：プール、AI、地形連動敵、ボス
+- `DestructionSystem`：ボクセル耐久、範囲破壊、鉱石連鎖
+- `WorldGenerator`：決定論的Passベース生成
+- `GameViewState`：描画/UIとの状態契約
+- PWA Service Worker / WebGL context recovery / orientation対応
 
-詳細なデータフローは [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照してください。
+詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照してください。
 
 ## 開発・検証
 
@@ -79,21 +100,22 @@ npm run test:worldgen:stress
 npm run lint
 ```
 
-`npm test` はビルド後に通常ルール、architecture contract、runtime contract、HTML検証を実行します。通常のworldgen smoke testは3シード、任意のstress testは100シードです。iPhone実機のFPS・発熱・メモリはこのリポジトリ内の静的テストだけでは測定できません。
+`npm test` はビルド後にゲームルール、architecture/runtime/camera/Canvas preview契約、HTML検証を実行します。worldgen smoke testは3シード、stress testは100シードです。iPhone実機のFPS・発熱・メモリは実機計測が必要です。
 
 ## パフォーマンス方針
 
-- TypedArrayを使用し、1ボクセル1Meshは作らない
-- iPhoneのdevicePixelRatioは最大1.5
-- チャンク再構築はキューでフレーム分散
-- 破片、砂煙、敵、コインはプールを再利用
-- ワールド生成データは生成完了後にSnapshotとしてVoxelWorldへ渡す
-- 破壊アルゴリズムはVoxelWorldの描画責務から分離
+- 1ボクセル1Meshは禁止
+- iPhone devicePixelRatioは最大1.5
+- チャンク再構築はフレーム分散
+- 破片・砂煙・敵・コインはプールを再利用
+- 生成結果はSnapshotとしてVoxelWorldへ渡す
+- 破壊アルゴリズムと描画責務を分離
+- 鉱石連鎖は1アクション内の処理数を制限し、iPhone上のスパイクを抑える
 
 ## 公開・権利について
 
 ゲーム内のコード・形状・配色・音はオリジナル実装です。Minecraft本体、プラグイン、MODのコードや素材は使用していません。
 
-このリポジトリはソース閲覧を目的として公開できますが、現時点ではプロジェクト独自コード・ゲーム素材に対するオープンソースライセンスを付与していません。GitHub上で公開されていること自体は、再配布・商用利用・派生作品作成などの追加権利を許諾するものではありません。依存パッケージにはそれぞれのライセンスが適用されます。
+このリポジトリはソース閲覧を目的として公開していますが、現時点ではプロジェクト独自コード・ゲーム素材に対するオープンソースライセンスを付与していません。GitHub上で公開されていること自体は、再配布・商用利用・派生作品作成などの追加権利を許諾するものではありません。依存パッケージにはそれぞれのライセンスが適用されます。
 
-認証トークン、秘密鍵、ローカル環境変数などをコミットしないでください。公開前の機密情報チェックについては `SECURITY.md` も参照してください。
+認証トークン、秘密鍵、ローカル環境変数などをコミットしないでください。公開時の機密情報については `SECURITY.md` を参照してください。
