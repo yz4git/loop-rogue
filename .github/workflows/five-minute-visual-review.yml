@@ -41,9 +41,9 @@ jobs:
           const context = await browser.newContext({viewport:{width:844,height:390},deviceScaleFactor:2,isMobile:true,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.6 Mobile/15E148 Safari/604.1'});
           const page = await context.newPage();
           const errors=[]; page.on('pageerror',e=>errors.push(String(e)));
-          async function choose(){const c=page.locator('.upgrade-card').first();if(await c.isVisible().catch(()=>false)){await c.click({force:true}).catch(()=>{});await page.waitForTimeout(150);}}
+          async function choose(){const c=page.locator('.upgrade-card').first();if(await c.isVisible().catch(()=>false)){await c.click({force:true,timeout:1500}).catch(()=>{});await page.waitForTimeout(150);}}
           async function shot(name){const data=await page.evaluate(()=>({text:document.body.innerText,buttons:[...document.querySelectorAll('button')].map(b=>b.textContent?.trim())}));fs.writeFileSync(`visual-review/${name}.json`,JSON.stringify(data,null,2));await page.screenshot({path:`visual-review/${name}.png`,fullPage:true});}
-          await page.goto('http://127.0.0.1:4173/?five-minute-review=2',{waitUntil:'domcontentloaded',timeout:90000});
+          await page.goto('http://127.0.0.1:4173/?five-minute-review=3',{waitUntil:'domcontentloaded',timeout:90000});
           await page.waitForSelector('.punch-button',{timeout:90000}); await page.waitForTimeout(3500); await shot('00-start');
           await page.keyboard.down('KeyW');
           for(let i=0;i<150;i++){
