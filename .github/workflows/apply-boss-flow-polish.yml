@@ -1,0 +1,137 @@
+name: apply boss flow polish
+
+on:
+  push:
+    branches:
+      - work/boss-flow-polish-20260829
+    paths:
+      - .github/workflows/apply-boss-flow-polish.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: work/boss-flow-polish-20260829
+          persist-credentials: true
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply guarded source patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime_path = Path('src/core/GameRuntime.ts')
+          runtime = runtime_path.read_text()
+
+          old_signature = '''  private maybeSpawnBoss(force = false): void {
+            const depthRatio = this.depthProgressRatio();
+            const state = this.session.state;
+            if (!force && !this.runDirector.shouldSpawnBoss(depthRatio, state.elapsedSeconds)) return;
+          '''
+          new_signature = '''  private maybeSpawnBoss(): void {
+            const depthRatio = this.depthProgressRatio();
+            const state = this.session.state;
+            if (!this.runDirector.shouldSpawnBoss(depthRatio, state.elapsedSeconds)) return;
+          '''
+          if runtime.count(old_signature) != 1:
+            raise SystemExit('boss spawn signature target did not match exactly once')
+          runtime = runtime.replace(old_signature, new_signature)
+
+          old_goal = '''      } else if (!run.bossActive && !run.bossDefeated) {
+                this.maybeSpawnBoss(true);
+              } else {
+                this.setMessage(`GOAL LOCK · 破壊 ${state.destroyed}/${GAME_CONFIG.goal.requiredDestroyed} · 撃破 ${state.enemiesDefeated}/${GAME_CONFIG.goal.requiredEnemiesDefeated}${run.bossActive ? " · BOSS ACTIVE" : ""}`);
+              }
+          '''
+          new_goal = '''      } else {
+                const bossGate = run.bossActive
+                  ? " · BOSS ACTIVE"
+                  : run.bossDefeated
+                    ? ""
+                    : " · BOSS LOCK · RUN LVを上げて深度72%へ";
+                this.setMessage(`GOAL LOCK · 破壊 ${state.destroyed}/${GAME_CONFIG.goal.requiredDestroyed} · 撃破 ${state.enemiesDefeated}/${GAME_CONFIG.goal.requiredEnemiesDefeated}${bossGate}`);
+              }
+          '''
+          if runtime.count(old_goal) != 1:
+            raise SystemExit('goal boss bypass target did not match exactly once')
+          runtime = runtime.replace(old_goal, new_goal)
+          runtime_path.write_text(runtime)
+
+          tests_path = Path('tests/runtime-contracts.test.ts')
+          tests = tests_path.read_text()
+
+          marker = '''test("GameSession is authoritative for damage, rewards, and stage state", () => {
+          '''
+          boss_test = '''test("EnemyManager recycles a defeated boss slot back into the reinforcement pool", () => {
+            const world = new VoxelWorld();
+            const scene = new THREE.Scene();
+            const player = new THREE.Group();
+            player.position.set(world.spawnPoint.x, world.spawnPoint.y, world.spawnPoint.z);
+            const manager = new EnemyManager(scene, world, {
+              onPlayerContact: () => undefined,
+              onEnemyDamaged: () => undefined,
+            });
+            manager.reset();
+            manager.setDanger(2, 5);
+            const boss = manager.spawnBoss(world.goalPoint.clone(), 5);
+            assert.ok(boss);
+            if (!boss) throw new Error("boss slot was unavailable");
+            const result = manager.damage(boss, player.position, boss.mesh.position.clone(), boss.maxHp + 10, 1);
+            assert.equal(result?.defeated, true);
+            assert.equal(result?.boss, true);
+            assert.equal(boss.boss, false);
+            assert.notEqual(boss.type, "boss");
+            assert.equal(boss.mesh.visible, false);
+            manager.update(4, player);
+            assert.ok(manager.activeCount >= 7);
+            manager.dispose();
+            world.dispose();
+          });
+
+          '''
+          if tests.count(marker) != 1:
+            raise SystemExit('runtime test insertion marker did not match exactly once')
+          tests = tests.replace(marker, boss_test + marker)
+
+          old_contract = '''  const demo = readFileSync(new URL("../src/core/VoxelDemo.ts", import.meta.url), "utf8");
+            const procedural = readFileSync(new URL("../src/stages/ProceduralStageSource.ts", import.meta.url), "utf8");
+            assert.match(demo, /GameRuntime/);
+          '''
+          new_contract = '''  const demo = readFileSync(new URL("../src/core/VoxelDemo.ts", import.meta.url), "utf8");
+            const runtime = readFileSync(new URL("../src/core/GameRuntime.ts", import.meta.url), "utf8");
+            const procedural = readFileSync(new URL("../src/stages/ProceduralStageSource.ts", import.meta.url), "utf8");
+            assert.match(demo, /GameRuntime/);
+            assert.doesNotMatch(runtime, /maybeSpawnBoss\\(true\\)/);
+            assert.match(runtime, /BOSS LOCK/);
+          '''
+          if tests.count(old_contract) != 1:
+            raise SystemExit('runtime contract target did not match exactly once')
+          tests = tests.replace(old_contract, new_contract)
+          tests_path.write_text(tests)
+          PY
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Runtime contracts
+        run: node --import tsx tests/runtime-contracts.test.ts
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "yz4git"
+          git config user.email "65384484+yz4git@users.noreply.github.com"
+          git add src/core/GameRuntime.ts tests/runtime-contracts.test.ts
+          git diff --cached --check
+          git commit -m "fix: enforce boss progression gate"
+          git push origin HEAD:work/boss-flow-polish-20260829
