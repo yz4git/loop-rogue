@@ -8,6 +8,7 @@ import { ProceduralStageSource, WORLD_GENERATOR_VERSION } from "../src/stages/Pr
 import { createStageArray, setStageVoxel, type StageSnapshot, type StageSource } from "../src/stages/StageSource";
 import { VoxelPlayerCollision } from "../src/player/VoxelPlayerCollision";
 import { DestructionSystem } from "../src/destruction/DestructionSystem";
+import { RunDirector } from "../src/game/RunDirector";
 
 class CollisionTestStage implements StageSource {
   readonly id = "collision-test";
@@ -20,7 +21,6 @@ class CollisionTestStage implements StageSource {
     for (let z = 0; z < depth; z += 1) {
       for (let x = 0; x < width; x += 1) setStageVoxel(types, width, height, depth, x, 0, z, VoxelType.Soil);
     }
-    // 足元の隣にある1ボクセル段差。接触前は床として誤認してはいけない。
     setStageVoxel(types, width, height, depth, 4, 1, 3, VoxelType.Rock);
     return {
       width,
@@ -32,6 +32,7 @@ class CollisionTestStage implements StageSource {
     };
   }
 }
+
 function damage(
   world: VoxelWorld,
   center: THREE.Vector3,
@@ -45,7 +46,6 @@ function damage(
     source: "punch",
   });
 }
-
 
 test("ボクセルワールドはTypedArrayと16立方体チャンクで構成される", () => {
   const world = new VoxelWorld();
@@ -95,11 +95,39 @@ test("破壊結果は鉱石報酬数を返す", () => {
   world.dispose();
 });
 
-test("パンチとジャンプの操作感設定は見た目に余裕を持つ", () => {
+test("パンチとジャンプの操作感設定は高速破壊向けの余裕を持つ", () => {
   assert.equal(GAME_CONFIG.destruction.punchRange >= 2.7, true);
   assert.equal(GAME_CONFIG.destruction.punchRadius >= 1.9, true);
+  assert.equal(GAME_CONFIG.destruction.punchCooldown <= 0.3, true);
+  assert.equal(GAME_CONFIG.player.moveSpeed >= 5, true);
   assert.equal(GAME_CONFIG.player.jumpVelocity > 7, true);
   assert.equal(GAME_CONFIG.enemies.knockback > 0.85, true);
+});
+
+test("Momentumは連続破壊でBREAK MODEへ入り、強化選択を発生させる", () => {
+  const director = new RunDirector();
+  director.reset("momentum-test", "normal");
+  director.recordDestruction(50, 3);
+  const powered = director.snapshot;
+  assert.equal(powered.breakMode, true);
+  assert.equal(powered.pendingUpgrade, true);
+  assert.equal(powered.upgradeChoices.length, 3);
+  const choice = powered.upgradeChoices[0];
+  assert.equal(director.selectUpgrade(choice.id), true);
+  assert.equal(director.snapshot.runLevel, 1);
+  assert.equal(director.snapshot.pendingUpgrade, false);
+});
+
+test("深度と経過時間からDANGERとDEPTH TIERが上昇する", () => {
+  const director = new RunDirector();
+  director.reset("depth-test", "hard");
+  director.update(1, 0.05, 10);
+  const shallow = director.snapshot;
+  director.update(1, 0.9, 520);
+  const deep = director.snapshot;
+  assert.ok(deep.depthTier > shallow.depthTier);
+  assert.ok(deep.danger > shallow.danger);
+  assert.ok(deep.pace >= 90);
 });
 
 test("接地判定は足裏と重なるセルだけを使い、隣の段差で浮かない", () => {
@@ -170,14 +198,14 @@ test("実ゲームと同じ衝突処理でジャンプ弧を描き、元の床�
       break;
     }
   }
-  assert.ok(maximumY > 3.3 && maximumY < 3.7);
-  assert.ok(landedFrame >= 55 && landedFrame <= 75);
+  assert.ok(maximumY > 3.4 && maximumY < 3.9);
+  assert.ok(landedFrame >= 58 && landedFrame <= 78);
   assert.equal(position.y, 1);
   world.dispose();
 });
 
-test("ランダム地形は同じシードで再現され、異なるシードで変化する", () => {
-  assert.equal(WORLD_GENERATOR_VERSION, 2);
+test("ランダム地形はv3で同じシードを再現し、破壊セットピースを生成する", () => {
+  assert.equal(WORLD_GENERATOR_VERSION, 3);
   const first = new ProceduralStageSource({ seed: "mountain-check" }).generate();
   const same = new ProceduralStageSource({ seed: "mountain-check" }).generate();
   const different = new ProceduralStageSource({ seed: "cave-check" }).generate();
@@ -186,10 +214,12 @@ test("ランダム地形は同じシードで再現され、異なるシード�
   assert.equal(first.width, 48);
   assert.equal(first.height, 32);
   assert.equal(first.depth, 48);
+  assert.ok((first.metadata?.breakSetpieces ?? 0) >= 3);
   const medium = new ProceduralStageSource({ seed: "medium-check", size: "medium" }).generate();
   assert.equal(medium.width, 64);
   assert.equal(medium.height, 40);
   assert.equal(medium.depth, 64);
+  assert.ok((medium.metadata?.breakSetpieces ?? 0) >= 4);
 });
 
 test("ランダム地形は外周を岩盤で守り、開始地点とゴールを範囲内に置く", () => {
@@ -208,4 +238,5 @@ test("ランダム地形は外周を岩盤で守り、開始地点とゴール�
   assert.equal((stage.metadata?.trees ?? 0) + (stage.metadata?.boulders ?? 0) > 0, true);
   assert.equal((stage.metadata?.coinSpawns?.length ?? 0) > 0, true);
   assert.equal((stage.metadata?.jigsawPieces ?? 0) > 0, true);
+  assert.equal((stage.metadata?.breakSetpieces ?? 0) > 0, true);
 });
