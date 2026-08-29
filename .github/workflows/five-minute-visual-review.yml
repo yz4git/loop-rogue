@@ -1,0 +1,68 @@
+name: five minute visual review
+
+on:
+  push:
+    branches: [work/five-minute-visual-improve-20260830]
+    paths: [.github/workflows/five-minute-visual-review.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  visual-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/five-minute-visual-improve-20260830
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: |
+          npm ci
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Start game
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 4173 >/tmp/game.log 2>&1 &
+          for i in $(seq 1 90); do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
+          cat /tmp/game.log; exit 1
+      - name: Play and capture
+        run: |
+          cat > visual-review.mjs <<'JS'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+          fs.mkdirSync('visual-review', { recursive: true });
+          const browser = await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-webgl','--ignore-gpu-blocklist','--disable-dev-shm-usage']});
+          const context = await browser.newContext({viewport:{width:844,height:390},deviceScaleFactor:2,isMobile:true,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.6 Mobile/15E148 Safari/604.1'});
+          const page = await context.newPage();
+          const errors=[]; page.on('pageerror',e=>errors.push(String(e)));
+          async function choose(){const c=page.locator('.upgrade-card').first();if(await c.isVisible().catch(()=>false)){await c.click({force:true}).catch(()=>{});await page.waitForTimeout(150);}}
+          async function shot(name){const data=await page.evaluate(()=>({text:document.body.innerText,buttons:[...document.querySelectorAll('button')].map(b=>b.textContent?.trim())}));fs.writeFileSync(`visual-review/${name}.json`,JSON.stringify(data,null,2));await page.screenshot({path:`visual-review/${name}.png`,fullPage:true});}
+          await page.goto('http://127.0.0.1:4173/?five-minute-review=1',{waitUntil:'domcontentloaded',timeout:90000});
+          await page.waitForSelector('.punch-button',{timeout:90000}); await page.waitForTimeout(3500); await shot('00-start');
+          await page.keyboard.down('KeyW');
+          for(let i=0;i<150;i++){
+            await page.keyboard.press('KeyF');
+            if(i%24===8){await page.keyboard.press('Space');await page.waitForTimeout(150);await page.keyboard.press('KeyF');}
+            if(i%35===17){await page.keyboard.down(i%70===17?'KeyA':'KeyD');await page.waitForTimeout(220);await page.keyboard.up(i%70===17?'KeyA':'KeyD');}
+            await choose();
+            if([20,45,75,105,135].includes(i)) await shot(`p${String(i).padStart(3,'0')}`);
+            await page.waitForTimeout(360);
+          }
+          await page.keyboard.up('KeyW'); await page.waitForTimeout(600); await shot('99-end');
+          fs.writeFileSync('visual-review/errors.json',JSON.stringify(errors,null,2));
+          await browser.close();
+          JS
+          node visual-review.mjs
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: five-minute-visual-review
+          path: visual-review
+          retention-days: 3
