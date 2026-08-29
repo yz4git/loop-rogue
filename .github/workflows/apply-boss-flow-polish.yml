@@ -32,48 +32,47 @@ jobs:
           from pathlib import Path
 
           runtime_path = Path('src/core/GameRuntime.ts')
-          runtime = runtime_path.read_text()
+          lines = runtime_path.read_text().splitlines()
 
-          old_signature = '''  private maybeSpawnBoss(force = false): void {
-            const depthRatio = this.depthProgressRatio();
-            const state = this.session.state;
-            if (!force && !this.runDirector.shouldSpawnBoss(depthRatio, state.elapsedSeconds)) return;
-          '''
-          new_signature = '''  private maybeSpawnBoss(): void {
-            const depthRatio = this.depthProgressRatio();
-            const state = this.session.state;
-            if (!this.runDirector.shouldSpawnBoss(depthRatio, state.elapsedSeconds)) return;
-          '''
-          if runtime.count(old_signature) != 1:
-            raise SystemExit('boss spawn signature target did not match exactly once')
-          runtime = runtime.replace(old_signature, new_signature)
+          def find_unique(stripped: str) -> int:
+              hits = [index for index, line in enumerate(lines) if line.strip() == stripped]
+              if len(hits) != 1:
+                  raise SystemExit(f'target {stripped!r} matched {len(hits)} times')
+              return hits[0]
 
-          old_goal = '''      } else if (!run.bossActive && !run.bossDefeated) {
-                this.maybeSpawnBoss(true);
-              } else {
-                this.setMessage(`GOAL LOCK · 破壊 ${state.destroyed}/${GAME_CONFIG.goal.requiredDestroyed} · 撃破 ${state.enemiesDefeated}/${GAME_CONFIG.goal.requiredEnemiesDefeated}${run.bossActive ? " · BOSS ACTIVE" : ""}`);
-              }
-          '''
-          new_goal = '''      } else {
-                const bossGate = run.bossActive
-                  ? " · BOSS ACTIVE"
-                  : run.bossDefeated
-                    ? ""
-                    : " · BOSS LOCK · RUN LVを上げて深度72%へ";
-                this.setMessage(`GOAL LOCK · 破壊 ${state.destroyed}/${GAME_CONFIG.goal.requiredDestroyed} · 撃破 ${state.enemiesDefeated}/${GAME_CONFIG.goal.requiredEnemiesDefeated}${bossGate}`);
-              }
-          '''
-          if runtime.count(old_goal) != 1:
-            raise SystemExit('goal boss bypass target did not match exactly once')
-          runtime = runtime.replace(old_goal, new_goal)
-          runtime_path.write_text(runtime)
+          signature = find_unique('private maybeSpawnBoss(force = false): void {')
+          lines[signature] = lines[signature].replace('maybeSpawnBoss(force = false)', 'maybeSpawnBoss()')
+
+          guard = find_unique('if (!force && !this.runDirector.shouldSpawnBoss(depthRatio, state.elapsedSeconds)) return;')
+          lines[guard] = lines[guard].replace('if (!force && ', 'if (')
+
+          bypass = find_unique('} else if (!run.bossActive && !run.bossDefeated) {')
+          if lines[bypass + 1].strip() != 'this.maybeSpawnBoss(true);' or lines[bypass + 2].strip() != '} else {':
+              raise SystemExit('goal boss bypass block shape changed')
+          indent = lines[bypass][:len(lines[bypass]) - len(lines[bypass].lstrip())]
+          lines[bypass] = indent + '} else {'
+          del lines[bypass + 1:bypass + 3]
+
+          goal_message_hits = [
+              index for index, line in enumerate(lines)
+              if 'this.setMessage(`GOAL LOCK · 破壊 ' in line
+          ]
+          if len(goal_message_hits) != 1:
+              raise SystemExit(f'goal lock message matched {len(goal_message_hits)} times')
+          goal_message = goal_message_hits[0]
+          message_indent = lines[goal_message][:len(lines[goal_message]) - len(lines[goal_message].lstrip())]
+          lines[goal_message] = message_indent + 'this.setMessage(`GOAL LOCK · 破壊 ${state.destroyed}/${GAME_CONFIG.goal.requiredDestroyed} · 撃破 ${state.enemiesDefeated}/${GAME_CONFIG.goal.requiredEnemiesDefeated}${run.bossActive ? " · BOSS ACTIVE" : run.bossDefeated ? "" : " · BOSS LOCK · RUN LVを上げて深度72%へ"}`);'
+
+          runtime_path.write_text('\n'.join(lines) + '\n')
 
           tests_path = Path('tests/runtime-contracts.test.ts')
           tests = tests_path.read_text()
+          boss_title = 'EnemyManager recycles a defeated boss slot back into the reinforcement pool'
+          gate_title = 'goal contact cannot bypass the RunDirector boss progression gate'
+          if boss_title in tests or gate_title in tests:
+              raise SystemExit('boss flow regression tests already exist')
 
-          marker = '''test("GameSession is authoritative for damage, rewards, and stage state", () => {
-          '''
-          boss_test = '''test("EnemyManager recycles a defeated boss slot back into the reinforcement pool", () => {
+          tests += '''\n\ntest("EnemyManager recycles a defeated boss slot back into the reinforcement pool", () => {
             const world = new VoxelWorld();
             const scene = new THREE.Scene();
             const player = new THREE.Group();
@@ -99,25 +98,12 @@ jobs:
             world.dispose();
           });
 
-          '''
-          if tests.count(marker) != 1:
-            raise SystemExit('runtime test insertion marker did not match exactly once')
-          tests = tests.replace(marker, boss_test + marker)
-
-          old_contract = '''  const demo = readFileSync(new URL("../src/core/VoxelDemo.ts", import.meta.url), "utf8");
-            const procedural = readFileSync(new URL("../src/stages/ProceduralStageSource.ts", import.meta.url), "utf8");
-            assert.match(demo, /GameRuntime/);
-          '''
-          new_contract = '''  const demo = readFileSync(new URL("../src/core/VoxelDemo.ts", import.meta.url), "utf8");
+          test("goal contact cannot bypass the RunDirector boss progression gate", () => {
             const runtime = readFileSync(new URL("../src/core/GameRuntime.ts", import.meta.url), "utf8");
-            const procedural = readFileSync(new URL("../src/stages/ProceduralStageSource.ts", import.meta.url), "utf8");
-            assert.match(demo, /GameRuntime/);
             assert.doesNotMatch(runtime, /maybeSpawnBoss\\(true\\)/);
+            assert.doesNotMatch(runtime, /maybeSpawnBoss\\(force/);
             assert.match(runtime, /BOSS LOCK/);
-          '''
-          if tests.count(old_contract) != 1:
-            raise SystemExit('runtime contract target did not match exactly once')
-          tests = tests.replace(old_contract, new_contract)
+          });\n'''
           tests_path.write_text(tests)
           PY
       - name: Install
