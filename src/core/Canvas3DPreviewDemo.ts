@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GameRuntime } from "./GameRuntime";
 import { Canvas3DPreviewRenderer } from "../rendering/Canvas3DPreviewRenderer";
 import type { StageSource } from "../stages/StageSource";
+import type { UpgradeId } from "../game/RunDirector";
 import { VoxelWorld } from "../world/VoxelWorld";
 import type { GameViewState } from "../ui/GameViewState";
 
@@ -101,7 +102,7 @@ export class Canvas3DPreviewDemo {
     const frame = this.runtime.update(delta, now);
     if (frame.shouldRender) this.previewRenderer.render(now);
     this.statsTimer += delta;
-    if (this.statsTimer >= 0.25) {
+    if (this.statsTimer >= 0.2) {
       this.statsTimer = 0;
       this.onStats(this.runtime.getViewState({ calls: 1, triangles: 0 }, delta > 0 ? Math.round(1 / delta) : 0, Math.round(delta * 1000 * 10) / 10));
     }
@@ -119,6 +120,11 @@ export class Canvas3DPreviewDemo {
 
   punch(): void {
     if (!this.paused) this.runtime.punch();
+  }
+
+  selectUpgrade(id: UpgradeId): void {
+    this.runtime.selectUpgrade(id);
+    this.statsTimer = 1;
   }
 
   beginPunchHold(): void {
