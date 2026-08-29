@@ -5,12 +5,13 @@ import * as THREE from "three";
 import { GAME_CONFIG } from "../src/core/Settings";
 import { PlayerCombat } from "../src/combat/PlayerCombat";
 import { DestructionSystem } from "../src/destruction/DestructionSystem";
+import { EnemyManager } from "../src/enemies/EnemyManager";
 import { GameSession } from "../src/game/GameSession";
 import { PlayerController } from "../src/player/PlayerController";
 import { VoxelPlayerCollision } from "../src/player/VoxelPlayerCollision";
 import { VoxelWorld } from "../src/world/VoxelWorld";
 
-test("PlayerController owns jump state and produces upward velocity", () => {
+test("PlayerController owns jump state and rises from the snapped floor", () => {
   const world = new VoxelWorld();
   const player = new THREE.Group();
   player.position.set(world.spawnPoint.x, world.spawnPoint.y, world.spawnPoint.z);
@@ -24,10 +25,11 @@ test("PlayerController owns jump state and produces upward velocity", () => {
   );
   const controller = new PlayerController(player, world, collision);
   assert.equal(controller.snapToGround(true), true);
+  const groundedY = player.position.y;
   controller.requestJump();
   assert.equal(controller.velocityY, GAME_CONFIG.player.jumpVelocity);
   controller.update(1 / 60, 0);
-  assert.ok(player.position.y > world.spawnPoint.y);
+  assert.ok(player.position.y > groundedY);
   world.dispose();
 });
 
@@ -65,6 +67,24 @@ test("DestructionSystem is the runtime entry point for voxel damage", () => {
   assert.equal(result.source, "punch");
   assert.ok(result.damagedVoxels > 0);
   assert.ok(result.dirtyChunks > 0);
+  world.dispose();
+});
+
+test("EnemyManager replenishes regular enemies as depth danger rises", () => {
+  const world = new VoxelWorld();
+  const scene = new THREE.Scene();
+  const player = new THREE.Group();
+  player.position.set(world.spawnPoint.x, world.spawnPoint.y, world.spawnPoint.z);
+  const manager = new EnemyManager(scene, world, {
+    onPlayerContact: () => undefined,
+    onEnemyDamaged: () => undefined,
+  });
+  manager.reset();
+  for (const enemy of manager.enemies) enemy.mesh.visible = false;
+  manager.setDanger(2, 5);
+  manager.update(4, player);
+  assert.ok(manager.activeCount >= 7);
+  manager.dispose();
   world.dispose();
 });
 
