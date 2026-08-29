@@ -35,21 +35,14 @@ jobs:
               if old not in text: raise SystemExit(f'{path}: missing replacement target {old[:80]!r}')
               p.write_text(text.replace(old,new,1))
 
-          # Slightly more recovery time after a contact and stronger physical separation.
           replace_if('src/enemies/EnemyManager.ts', 'this.playerContactCooldown = enemy.boss ? 0.7 : 1.15;', 'this.playerContactCooldown = enemy.boss ? 0.8 : 1.35;')
           replace_if('src/core/GameRuntime.ts', 'this.player.position.addScaledVector(knockback.normalize(), 0.4);', 'this.player.position.addScaledVector(knockback.normalize(), 0.58);')
-
-          # Expose camera distance and use a close-camera first-person fallback instead of a giant avatar occluder.
           replace_if('src/core/GameRuntime.ts', '  get breakVisualStrength(): number { return this.runDirector.getBreakVisualStrength(); }', '  get breakVisualStrength(): number { return this.runDirector.getBreakVisualStrength(); }\n  get cameraDistance(): number { return this.cameraController.distance; }')
           replace_if('src/core/VoxelDemo.ts', '    this.player.visible = true;\n    this.updatePlayerAnimation(now);', '    this.player.visible = this.runtime.cameraDistance >= 1.2;\n    this.updatePlayerAnimation(now);')
-
-          # Keep physical max depth distinct from the five-minute pacing meter.
           replace_if('src/game/RunDirector.ts', '  targetSeconds: number;\n  pace: number;', '  targetSeconds: number;\n  pace: number;\n  maxDepthPercent: number;')
           replace_if('src/game/RunDirector.ts', '      targetSeconds: GAME_CONFIG.run.targetSeconds,\n      pace: Math.round(this.pace * 100),', '      targetSeconds: GAME_CONFIG.run.targetSeconds,\n      pace: Math.round(this.pace * 100),\n      maxDepthPercent: Math.round(this.maxDepth * 100),')
           replace_if('src/ui/GameViewState.ts', '  runPace: number;\n  targetSeconds: number;', '  runPace: number;\n  runMaxDepth: number;\n  targetSeconds: number;')
           replace_if('src/core/GameRuntime.ts', '      runPace: run.pace,\n      targetSeconds: run.targetSeconds,', '      runPace: run.pace,\n      runMaxDepth: run.maxDepthPercent,\n      targetSeconds: run.targetSeconds,')
-
-          # Correct stale initial UI defaults and result presentation.
           replace_if('app/page.tsx', '  hp: 12,\n  maxHp: 12,\n  enemies: 6,', '  hp: 16,\n  maxHp: 16,\n  enemies: 3,')
           replace_if('app/page.tsx', '  nextUpgradeXp: 90,', '  nextUpgradeXp: 150,')
           replace_if('app/page.tsx', '  runPace: 0,\n  targetSeconds: 600,', '  runPace: 0,\n  runMaxDepth: 0,\n  targetSeconds: 300,')
