@@ -175,6 +175,8 @@ export class VoxelDemo {
     this.rightArm.position.set(0.27, 0.72, 0.18);
     this.leftHand.position.set(-0.3, 0.68, 0.42);
     this.rightHand.position.set(0.3, 0.68, 0.42);
+    this.leftHand.scale.setScalar(1);
+    this.rightHand.scale.setScalar(1);
 
     const breakStrength = this.runtime.breakVisualStrength;
     const auraMaterial = this.breakAura.material;
@@ -190,6 +192,7 @@ export class VoxelDemo {
     } else {
       this.breakLight.intensity = 0;
       this.playerBody.material.emissive.setHex(0x000000);
+      this.handMaterial.emissive?.setHex?.(0x000000);
     }
 
     if (this.runtime.isGroundPoundActive) {
