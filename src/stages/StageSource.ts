@@ -29,6 +29,7 @@ export interface StageMetadata {
   structures?: number;
   jigsawPieces?: number;
   landmarks?: number;
+  breakSetpieces?: number;
   enemySpawns?: StagePoint[];
   coinSpawns?: StagePoint[];
   generationMs?: number;
