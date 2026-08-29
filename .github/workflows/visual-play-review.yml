@@ -47,7 +47,7 @@ jobs:
       - name: Play and capture iPhone landscape review
         shell: bash
         run: |
-          cat > /tmp/visual-play-review.mjs <<'JS'
+          cat > visual-play-review.mjs <<'JS'
           import fs from 'node:fs';
           import { chromium } from 'playwright';
 
@@ -207,10 +207,12 @@ jobs:
           }, null, 2));
           await browser.close();
           JS
-          node /tmp/visual-play-review.mjs
+          node visual-play-review.mjs
       - name: Preserve server log
         if: always()
-        run: cp /tmp/loop-rogue-vite.log visual-review/server.log || true
+        run: |
+          mkdir -p visual-review
+          cp /tmp/loop-rogue-vite.log visual-review/server.log || true
       - name: Upload visual review
         if: always()
         uses: actions/upload-artifact@v4
