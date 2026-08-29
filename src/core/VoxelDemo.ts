@@ -3,6 +3,7 @@ import { GAME_CONFIG } from "./Settings";
 import { VoxelWorld } from "../world/VoxelWorld";
 import type { StageSource } from "../stages/StageSource";
 import { GameRuntime } from "./GameRuntime";
+import type { UpgradeId } from "../game/RunDirector";
 import type { GameViewState } from "../ui/GameViewState";
 
 export type DemoStats = GameViewState;
@@ -17,11 +18,13 @@ export class VoxelDemo {
   private readonly onStats: (stats: DemoStats) => void;
   private readonly clock = new THREE.Clock();
   private readonly player = new THREE.Group();
-  private readonly playerBody!: THREE.Mesh;
+  private readonly playerBody!: THREE.Mesh<THREE.BufferGeometry, THREE.MeshLambertMaterial>;
   private readonly leftHand!: THREE.Mesh;
   private readonly rightHand!: THREE.Mesh;
   private readonly leftArm!: THREE.Mesh;
   private readonly rightArm!: THREE.Mesh;
+  private readonly breakAura!: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>;
+  private readonly breakLight = new THREE.PointLight(0x63f4df, 0, 7, 2);
   private readonly handGeometry = new THREE.SphereGeometry(0.15, 8, 6);
   private readonly armGeometry = new THREE.CapsuleGeometry(0.085, 0.34, 4, 6);
   private readonly handMaterial = new THREE.MeshLambertMaterial({ color: 0x68e2d1 });
@@ -39,7 +42,7 @@ export class VoxelDemo {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, GAME_CONFIG.rendering.maxPixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.className = "voxel-canvas";
-    this.renderer.domElement.setAttribute("aria-label", "地形を破壊しながら歩く3Dボクセル技術デモ");
+    this.renderer.domElement.setAttribute("aria-label", "地形を破壊しながら進む3Dボクセルアクション");
     this.mount.appendChild(this.renderer.domElement);
 
     this.scene.add(new THREE.HemisphereLight(0xb9dcff, 0x3a2b2a, 2.15));
@@ -67,7 +70,7 @@ export class VoxelDemo {
   }
 
   private createPlayerVisual(): void {
-    const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0xf0a35b });
+    const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0xf0a35b, emissive: 0x000000 });
     this.playerBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.72, 4, 8), bodyMaterial);
     this.playerBody.position.y = 0.7;
     this.player.add(this.playerBody);
@@ -88,6 +91,16 @@ export class VoxelDemo {
     this.leftHand.position.set(-0.3, 0.68, 0.42);
     this.rightHand.position.set(0.3, 0.68, 0.42);
     this.player.add(this.leftArm, this.rightArm, this.leftHand, this.rightHand);
+
+    this.breakAura = new THREE.Mesh(
+      new THREE.TorusGeometry(0.68, 0.035, 6, 28),
+      new THREE.MeshBasicMaterial({ color: 0x62f4df, transparent: true, opacity: 0, depthWrite: false }),
+    );
+    this.breakAura.rotation.x = Math.PI / 2;
+    this.breakAura.position.y = 0.12;
+    this.breakAura.visible = false;
+    this.breakLight.position.y = 0.75;
+    this.player.add(this.breakAura, this.breakLight);
   }
 
   private readonly resize = () => {
@@ -135,6 +148,11 @@ export class VoxelDemo {
     this.runtime.punch();
   }
 
+  selectUpgrade(id: UpgradeId): void {
+    this.runtime.selectUpgrade(id);
+    this.statsTimer = 1;
+  }
+
   reset(): void {
     this.runtime.reset();
     this.statsTimer = 0;
@@ -158,6 +176,22 @@ export class VoxelDemo {
     this.leftHand.position.set(-0.3, 0.68, 0.42);
     this.rightHand.position.set(0.3, 0.68, 0.42);
 
+    const breakStrength = this.runtime.breakVisualStrength;
+    const auraMaterial = this.breakAura.material;
+    this.breakAura.visible = breakStrength > 0.2;
+    if (this.breakAura.visible) {
+      const pulse = 1 + Math.sin(now * 0.012) * 0.16;
+      this.breakAura.scale.setScalar((0.82 + breakStrength * 0.55) * pulse);
+      this.breakAura.rotation.z += 0.035 + breakStrength * 0.05;
+      auraMaterial.opacity = 0.1 + breakStrength * 0.72;
+      this.breakLight.intensity = breakStrength > 0.98 ? 3.1 : breakStrength * 0.9;
+      this.playerBody.material.emissive.setHex(breakStrength > 0.98 ? 0x0c5c57 : 0x000000);
+      this.handMaterial.emissive?.setHex?.(breakStrength > 0.98 ? 0x0b5f59 : 0x000000);
+    } else {
+      this.breakLight.intensity = 0;
+      this.playerBody.material.emissive.setHex(0x000000);
+    }
+
     if (this.runtime.isGroundPoundActive) {
       const progress = Math.min(1, Math.max(0, (now - (this.runtime.attackAnimationUntil - 260)) / 260));
       this.playerBody.scale.set(1.15 - progress * 0.15, 0.88 + progress * 0.12, 1.15 - progress * 0.15);
@@ -169,7 +203,7 @@ export class VoxelDemo {
 
     const remaining = this.runtime.attackAnimationUntil - now;
     if (remaining > 0) {
-      const progress = 1 - remaining / 240;
+      const progress = 1 - remaining / 210;
       const leftSwing = Math.sin(Math.min(1, progress * 2) * Math.PI);
       const rightSwing = Math.sin(Math.max(0, progress * 2 - 1) * Math.PI);
       this.playerBody.rotation.x = -Math.max(leftSwing, rightSwing) * 0.72;
@@ -180,8 +214,8 @@ export class VoxelDemo {
       this.rightHand.position.z += rightSwing * 0.56;
       this.leftHand.position.x -= leftSwing * 0.12;
       this.rightHand.position.x += rightSwing * 0.12;
-      this.leftHand.scale.setScalar(1 + leftSwing * 0.18);
-      this.rightHand.scale.setScalar(1 + rightSwing * 0.18);
+      this.leftHand.scale.setScalar(1 + leftSwing * 0.18 + breakStrength * 0.08);
+      this.rightHand.scale.setScalar(1 + rightSwing * 0.18 + breakStrength * 0.08);
       return;
     }
     this.playerBody.rotation.x = 0;
@@ -202,7 +236,7 @@ export class VoxelDemo {
     if (frame.shouldRender) this.renderer.render(this.scene, this.camera);
 
     this.statsTimer += delta;
-    if (this.statsTimer >= 0.25) {
+    if (this.statsTimer >= 0.2) {
       this.statsTimer = 0;
       const info = this.renderer.info;
       this.onStats(this.runtime.getViewState(
@@ -235,10 +269,12 @@ export class VoxelDemo {
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.runtime.dispose();
     this.playerBody.geometry.dispose();
-    (this.playerBody.material as THREE.Material).dispose();
+    this.playerBody.material.dispose();
     this.handGeometry.dispose();
     this.armGeometry.dispose();
     this.handMaterial.dispose();
+    this.breakAura.geometry.dispose();
+    this.breakAura.material.dispose();
     this.renderer.domElement.removeEventListener("webglcontextlost", this.handleContextLost);
     this.renderer.domElement.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.renderer.dispose();
