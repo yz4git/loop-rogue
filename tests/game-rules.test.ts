@@ -103,10 +103,22 @@ test("パンチとジャンプの操作感設定は高速破壊向けの余裕�
   assert.equal(GAME_CONFIG.enemies.knockback > 0.85, true);
 });
 
-test("Momentumは連続破壊でBREAK MODEへ入り、強化選択を発生させる", () => {
+test("5分ランを基準にし、GROUND BREAK一発で強化が出ない", () => {
+  assert.equal(GAME_CONFIG.run.targetSeconds, 300);
+  assert.equal(GAME_CONFIG.run.bossEarliestSeconds, 210);
+  assert.equal(GAME_CONFIG.run.bossForceSeconds, 240);
+  const director = new RunDirector();
+  director.reset("ground-pound-pacing", "normal");
+  director.recordGroundPound(80, 0);
+  assert.equal(director.snapshot.pendingUpgrade, false);
+  assert.ok(director.snapshot.runXp < director.snapshot.nextUpgradeXp);
+  assert.equal(director.snapshot.breakMode, false);
+});
+
+test("Momentumは複数回の連続破壊でBREAK MODEと最初の強化へ到達する", () => {
   const director = new RunDirector();
   director.reset("momentum-test", "normal");
-  director.recordDestruction(50, 3);
+  for (let index = 0; index < 10; index += 1) director.recordDestruction(20, 1);
   const powered = director.snapshot;
   assert.equal(powered.breakMode, true);
   assert.equal(powered.pendingUpgrade, true);
@@ -117,16 +129,32 @@ test("Momentumは連続破壊でBREAK MODEへ入り、強化選択を発生さ�
   assert.equal(director.snapshot.pendingUpgrade, false);
 });
 
-test("深度と経過時間からDANGERとDEPTH TIERが上昇する", () => {
+test("物理深度だけでは序盤PACEが暴走せず、時間とともにDANGERが上がる", () => {
   const director = new RunDirector();
   director.reset("depth-test", "hard");
-  director.update(1, 0.05, 10);
-  const shallow = director.snapshot;
-  director.update(1, 0.9, 520);
-  const deep = director.snapshot;
-  assert.ok(deep.depthTier > shallow.depthTier);
-  assert.ok(deep.danger > shallow.danger);
-  assert.ok(deep.pace >= 90);
+  director.update(1, 0.95, 20);
+  const earlyDeep = director.snapshot;
+  assert.ok(earlyDeep.pace < 30);
+  assert.ok(earlyDeep.depthTier <= 2);
+  director.update(1, 0.9, 285);
+  const lateDeep = director.snapshot;
+  assert.ok(lateDeep.depthTier > earlyDeep.depthTier);
+  assert.ok(lateDeep.danger > earlyDeep.danger);
+  assert.ok(lateDeep.pace >= 90);
+});
+
+test("ボスは成長していても3分半より前には出ず、4分で強制解禁される", () => {
+  const director = new RunDirector();
+  director.reset("boss-clock-test", "normal");
+  director.recordDestruction(2100, 0);
+  assert.equal(director.shouldSpawnBoss(0.95, 180), false);
+  assert.equal(director.shouldSpawnBoss(0.95, 210), true);
+
+  const clockDirector = new RunDirector();
+  clockDirector.reset("boss-force-test", "normal");
+  clockDirector.recordDestruction(2100, 0);
+  assert.equal(clockDirector.shouldSpawnBoss(0.4, 239), false);
+  assert.equal(clockDirector.shouldSpawnBoss(0.4, 240), true);
 });
 
 test("接地判定は足裏と重なるセルだけを使い、隣の段差で浮かない", () => {
