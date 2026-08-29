@@ -83,7 +83,8 @@ jobs:
             });
             manager.reset();
             manager.setDanger(2, 5);
-            const boss = manager.spawnBoss(world.goalPoint.clone(), 5);
+            const bossPoint = new THREE.Vector3(world.goalPoint.x, world.goalPoint.y, world.goalPoint.z);
+            const boss = manager.spawnBoss(bossPoint, 5);
             assert.ok(boss);
             if (!boss) throw new Error("boss slot was unavailable");
             const result = manager.damage(boss, player.position, boss.mesh.position.clone(), boss.maxHp + 10, 1);
