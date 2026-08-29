@@ -10,9 +10,9 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "build": "bash scripts/build-verified.sh",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --experimental-test-isolation=none --test-force-exit --import tsx --test tests/game-rules.test.ts tests/architecture-contracts.test.ts tests/runtime-contracts.test.ts tests/camera-contracts.test.ts tests/canvas3d-preview.test.ts tests/rendered-html.test.mjs",
-    "test:worldgen": "node --experimental-test-isolation=none --test-force-exit --import tsx --test tests/worldgen-stress.test.ts",
-    "test:worldgen:stress": "node --experimental-test-isolation=none --test-force-exit --import tsx --test tests/worldgen-stress-100.test.ts",
+    "test": "npm run build && bash scripts/run-tests.sh",
+    "test:worldgen": "node --import tsx tests/worldgen-stress.test.ts",
+    "test:worldgen:stress": "node --import tsx tests/worldgen-stress-100.test.ts",
     "validate:artifact": "bash scripts/validate-artifact.sh",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
