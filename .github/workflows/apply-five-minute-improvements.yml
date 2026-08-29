@@ -1,0 +1,169 @@
+name: apply five minute gameplay improvements
+
+on:
+  push:
+    branches: [work/five-minute-visual-improve-20260830]
+    paths: [.github/workflows/apply-five-minute-improvements.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  improve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/five-minute-visual-improve-20260830
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply gameplay improvements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: expected one match for {old[:80]!r}, got {text.count(old)}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once('src/core/Settings.ts', '    contactCooldown: 1.05,', '    contactCooldown: 1.3,')
+
+          replace_once('src/enemies/EnemyManager.ts', '''  reset(): void {
+    const spawnPoints = this.getSpawnPoints();
+    const activeCount = this.getInitialActiveCount();
+    for (let index = 0; index < this.enemies.length; index += 1) {
+      const type = TYPE_ORDER[index % TYPE_ORDER.length];
+      const position = spawnPoints[index]
+        ?? spawnPoints[index % Math.max(1, spawnPoints.length)]
+        ?? this.fallbackSpawn(index);
+      this.configureRegularEnemy(this.enemies[index], type, position, index < activeCount, index * 0.13);
+    }
+    this.reinforcementCooldown = 3.5;
+  }''', '''  reset(): void {
+    const spawnPoints = this.getSpawnPoints();
+    const safeSpawnPoints = spawnPoints.filter((point) => point.distanceToSquared(this.world.spawnPoint) >= 42.25);
+    const initialPool = safeSpawnPoints.length > 0 ? safeSpawnPoints : spawnPoints;
+    const activeCount = this.getInitialActiveCount();
+    for (let index = 0; index < this.enemies.length; index += 1) {
+      const type = TYPE_ORDER[index % TYPE_ORDER.length];
+      const position = initialPool[index % Math.max(1, initialPool.length)] ?? this.fallbackSpawn(index);
+      this.configureRegularEnemy(this.enemies[index], type, position, index < activeCount, 0.8 + index * 0.13);
+    }
+    this.reinforcementCooldown = 5.5;
+  }''')
+
+          replace_once('src/enemies/EnemyManager.ts', '    enemy.hitCooldown = visible ? 0.55 : 0;', '    enemy.hitCooldown = visible ? 0.9 : 0;')
+
+          replace_once('src/enemies/EnemyManager.ts', '''  private getInitialActiveCount(): number {
+    if (this.world.metadata?.difficulty === "easy") return Math.min(4, GAME_CONFIG.enemies.maxActive);
+    if (this.world.metadata?.difficulty === "hard") return Math.min(7, GAME_CONFIG.enemies.maxActive);
+    return Math.min(6, GAME_CONFIG.enemies.maxActive);
+  }
+
+  private getRegularPopulationTarget(bossActive: boolean): number {
+    const base = this.world.metadata?.difficulty === "easy" ? 4 : this.world.metadata?.difficulty === "hard" ? 7 : 6;
+    const tierBonus = Math.floor(Math.max(0, this.depthTier - 1) / 2);
+    const capacity = Math.max(1, GAME_CONFIG.enemies.maxActive - (bossActive ? 1 : 0));
+    return Math.min(capacity, base + tierBonus);
+  }''', '''  private getInitialActiveCount(): number {
+    if (this.world.metadata?.difficulty === "easy") return Math.min(3, GAME_CONFIG.enemies.maxActive);
+    if (this.world.metadata?.difficulty === "hard") return Math.min(5, GAME_CONFIG.enemies.maxActive);
+    return Math.min(4, GAME_CONFIG.enemies.maxActive);
+  }
+
+  private getRegularPopulationTarget(bossActive: boolean): number {
+    const base = this.world.metadata?.difficulty === "easy" ? 3 : this.world.metadata?.difficulty === "hard" ? 5 : 4;
+    const tierBonus = Math.floor(Math.max(0, this.depthTier - 1) * 0.6);
+    const capacity = Math.max(1, GAME_CONFIG.enemies.maxActive - (bossActive ? 1 : 0));
+    return Math.min(capacity, base + tierBonus);
+  }''')
+
+          replace_once('src/core/GameRuntime.ts', '  private lastDepthTier = 1;\n  private runEndRecorded = false;', '  private lastDepthTier = 1;\n  private playerHitInvulnerableUntil = 0;\n  private runEndRecorded = false;')
+          replace_once('src/core/GameRuntime.ts', '    this.lastBreakMode = false;\n    this.lastDepthTier = 1;', '    this.lastBreakMode = false;\n    this.lastDepthTier = 1;\n    this.playerHitInvulnerableUntil = 0;')
+          replace_once('src/core/GameRuntime.ts', '''  private damagePlayer(source: THREE.Vector3, damage = GAME_CONFIG.enemies.contactDamage): void {
+    if (this.session.state.state !== "playing") return;
+    const gameover = this.session.damage(Math.max(1, damage));
+    this.cameraController.addShake(240, 0.18);
+    const knockback = this.player.position.clone().sub(source);
+    knockback.y = 0;
+    if (knockback.lengthSq() > 0.001) this.player.position.addScaledVector(knockback.normalize(), 0.4);
+    this.playerController.snapToGround();
+    this.setMessage(gameover
+      ? "RUN OVER · コア進行を保持して再挑戦"
+      : `被弾 · HP ${this.session.state.hp}/${this.session.state.maxHp}`);
+  }''', '''  private damagePlayer(source: THREE.Vector3, damage = GAME_CONFIG.enemies.contactDamage): void {
+    if (this.session.state.state !== "playing") return;
+    const now = performance.now();
+    if (now < this.playerHitInvulnerableUntil) return;
+    this.playerHitInvulnerableUntil = now + 1150;
+    const gameover = this.session.damage(Math.max(1, damage));
+    this.cameraController.addShake(240, 0.18);
+    const knockback = this.player.position.clone().sub(source);
+    knockback.y = 0;
+    if (knockback.lengthSq() > 0.001) this.player.position.addScaledVector(knockback.normalize(), 0.72);
+    this.playerController.snapToGround();
+    this.setMessage(gameover
+      ? "RUN OVER · コア進行を保持して再挑戦"
+      : `被弾 · HP ${this.session.state.hp}/${this.session.state.maxHp}`);
+  }''')
+
+          replace_once('src/game/RunDirector.ts', '  targetSeconds: number;\n  pace: number;', '  targetSeconds: number;\n  pace: number;\n  maxDepthPercent: number;')
+          replace_once('src/game/RunDirector.ts', '      targetSeconds: GAME_CONFIG.run.targetSeconds,\n      pace: Math.round(this.pace * 100),', '      targetSeconds: GAME_CONFIG.run.targetSeconds,\n      pace: Math.round(this.pace * 100),\n      maxDepthPercent: Math.round(this.maxDepth * 100),')
+
+          replace_once('src/ui/GameViewState.ts', '  runPace: number;\n  targetSeconds: number;', '  runPace: number;\n  runMaxDepth: number;\n  targetSeconds: number;')
+          replace_once('src/core/GameRuntime.ts', '      runPace: run.pace,\n      targetSeconds: run.targetSeconds,', '      runPace: run.pace,\n      runMaxDepth: run.maxDepthPercent,\n      targetSeconds: run.targetSeconds,')
+
+          replace_once('app/page.tsx', '  nextUpgradeXp: 90,', '  nextUpgradeXp: 150,')
+          replace_once('app/page.tsx', '  runPace: 0,\n  targetSeconds: 600,', '  runPace: 0,\n  runMaxDepth: 0,\n  targetSeconds: 300,')
+          replace_once('app/page.tsx', '    <main className={`demo-shell ${stats.breakMode ? "break-active" : ""}`}', '    <main className={`demo-shell ${stats.breakMode ? "break-active" : ""} ${stats.status !== "playing" ? "run-ended" : ""}`}')
+          replace_once('app/page.tsx', ' : `到達DEPTH ${stats.runPace}%`}', ' : `到達DEPTH ${stats.runMaxDepth}%`}')
+
+          css = Path('app/globals.css')
+          css_text = css.read_text()
+          marker = '.run-ended .virtual-joystick'
+          if marker not in css_text:
+              css_text += '''\n\n/* Result state: keep the playfield readable and prevent accidental input behind RUN OVER/CLEAR. */\n.run-ended .virtual-joystick,\n.run-ended .punch-button,\n.run-ended .jump-button {\n  opacity: 0;\n  pointer-events: none;\n  transform: scale(0.92);\n}\n'''
+              css.write_text(css_text)
+
+          replace_once('README.md', '1ランは約10分を目標にしています。', '1ランは約5分を目標にしています。')
+
+          tests = Path('tests/runtime-contracts.test.ts')
+          text = tests.read_text()
+          text = text.replace('  assert.ok(manager.activeCount >= 7);', '  assert.ok(manager.activeCount >= 6);')
+          addition = '''\n\ntest("five-minute normal runs start with a readable four-enemy pressure curve", () => {\n  const world = new VoxelWorld();\n  const scene = new THREE.Scene();\n  const manager = new EnemyManager(scene, world, {\n    onPlayerContact: () => undefined,\n    onEnemyDamaged: () => undefined,\n  });\n  manager.reset();\n  assert.equal(manager.activeCount, 4);\n  const nearestSq = Math.min(...manager.enemies.filter((enemy) => enemy.mesh.visible).map((enemy) => enemy.mesh.position.distanceToSquared(world.spawnPoint)));\n  assert.ok(nearestSq >= 30);\n  manager.dispose();\n  world.dispose();\n});\n\ntest("GameRuntime applies a shared player hit lock against swarm burst damage", () => {\n  const runtime = readFileSync(new URL("../src/core/GameRuntime.ts", import.meta.url), "utf8");\n  assert.match(runtime, /playerHitInvulnerableUntil/);\n  assert.match(runtime, /now \+ 1150/);\n});\n'''
+          if 'five-minute normal runs start with a readable four-enemy pressure curve' not in text:
+              text += addition
+          tests.write_text(text)
+
+          rules = Path('tests/game-rules.test.ts')
+          rules_text = rules.read_text()
+          addition2 = '''\n\ntest("RunDirector reports true maximum physical depth separately from pacing", () => {\n  const director = new RunDirector();\n  director.reset("max-depth-display", "normal");\n  director.update(1, 0.83, 20);\n  assert.equal(director.snapshot.maxDepthPercent, 83);\n  assert.ok(director.snapshot.pace < director.snapshot.maxDepthPercent);\n});\n'''
+          if 'RunDirector reports true maximum physical depth separately from pacing' not in rules_text:
+              rules_text += addition2
+          rules.write_text(rules_text)
+          PY
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Tests
+        run: bash scripts/run-tests.sh
+      - name: Lint
+        run: npm run lint
+      - name: Commit improvement
+        shell: bash
+        run: |
+          git config user.name "yz4git"
+          git config user.email "65384484+yz4git@users.noreply.github.com"
+          git add src/core/Settings.ts src/enemies/EnemyManager.ts src/core/GameRuntime.ts src/game/RunDirector.ts src/ui/GameViewState.ts app/page.tsx app/globals.css README.md tests/runtime-contracts.test.ts tests/game-rules.test.ts
+          git diff --cached --check
+          git commit -m "fix: rebalance five minute run survivability and results"
+          git push origin HEAD:work/five-minute-visual-improve-20260830
