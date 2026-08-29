@@ -46,7 +46,7 @@ jobs:
           for test_file in "${tests[@]}"; do
             echo "::group::${test_file}"
             timeout --signal=TERM --kill-after=5s 60s \
-              node --test-force-exit --import tsx --test "${test_file}"
+              node --test-isolation=none --test-force-exit --import tsx --test "${test_file}"
             echo "::endgroup::"
           done
       - name: Worldgen smoke test
