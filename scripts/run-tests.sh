@@ -12,22 +12,21 @@ command -v timeout >/dev/null || {
 
 run_test_file() {
   local test_file="$1"
-  echo "[test] ${test_file}"
+  local budget="${2:-${TEST_FILE_TIMEOUT:-60s}}"
+  echo "[test] ${test_file} (budget ${budget})"
   timeout \
     --signal=TERM \
     --kill-after="${TEST_KILL_AFTER:-5s}" \
-    "${TEST_FILE_TIMEOUT:-60s}" \
+    "${budget}" \
     node --import tsx "${test_file}"
 }
 
-for test_file in \
-  tests/game-rules.test.ts \
-  tests/architecture-contracts.test.ts \
-  tests/runtime-contracts.test.ts \
-  tests/camera-contracts.test.ts \
-  tests/canvas3d-preview.test.ts \
-  tests/rendered-html.test.mjs; do
-  run_test_file "${test_file}"
-done
+run_test_file tests/game-rules.test.ts
+run_test_file tests/architecture-contracts.test.ts
+run_test_file tests/runtime-contracts.test.ts
+run_test_file tests/camera-contracts.test.ts
+run_test_file tests/canvas3d-preview.test.ts
+run_test_file tests/worldgen-contracts.test.ts "${WORLDGEN_CONTRACT_TIMEOUT:-150s}"
+run_test_file tests/rendered-html.test.mjs
 
 echo "[test] all suites passed"
