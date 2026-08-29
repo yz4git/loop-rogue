@@ -32,7 +32,7 @@ jobs:
       - name: Build
         run: npm run build
       - name: Test
-        run: npm test
+        run: node --import tsx --test tests/game-rules.test.ts tests/architecture-contracts.test.ts tests/runtime-contracts.test.ts tests/camera-contracts.test.ts tests/canvas3d-preview.test.ts tests/rendered-html.test.mjs
       - name: Worldgen smoke test
         run: npm run test:worldgen
       - name: Lint
