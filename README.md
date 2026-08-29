@@ -101,7 +101,7 @@ npm run test:worldgen:stress
 npm run lint
 ```
 
-`npm test` はビルド後にゲームルール、architecture/runtime/camera/Canvas preview契約、HTML検証を実行します。worldgen smoke testは3シード、stress testは100シードです。iPhone実機のFPS・発熱・メモリは実機計測が必要です。
+`npm test` はビルド後にゲームルール、architecture/runtime/camera/Canvas preview契約、HTML検証を1ファイルずつ上限時間付きで実行します。worldgen smoke testは3シード、stress testは100シードです。iPhone実機のFPS・発熱・メモリは実機計測が必要です。
 
 ## パフォーマンス方針
 
