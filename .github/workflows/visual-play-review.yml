@@ -1,0 +1,221 @@
+name: visual play review
+
+on:
+  push:
+    branches:
+      - work/visual-play-review-20260830
+    paths:
+      - .github/workflows/visual-play-review.yml
+
+permissions:
+  contents: read
+
+jobs:
+  play-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: work/visual-play-review-20260830
+          persist-credentials: false
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install app
+        run: npm ci
+      - name: Install visual browser
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Start game
+        shell: bash
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 4173 > /tmp/loop-rogue-vite.log 2>&1 &
+          echo $! > /tmp/loop-rogue-vite.pid
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/loop-rogue-vite.log
+          exit 1
+      - name: Play and capture iPhone landscape review
+        shell: bash
+        run: |
+          cat > /tmp/visual-play-review.mjs <<'JS'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+
+          fs.mkdirSync('visual-review', { recursive: true });
+          const browser = await chromium.launch({
+            headless: true,
+            args: [
+              '--use-angle=swiftshader',
+              '--enable-webgl',
+              '--ignore-gpu-blocklist',
+              '--disable-dev-shm-usage',
+            ],
+          });
+          const context = await browser.newContext({
+            viewport: { width: 844, height: 390 },
+            deviceScaleFactor: 2,
+            isMobile: true,
+            hasTouch: true,
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1',
+          });
+          const page = await context.newPage();
+          const consoleMessages = [];
+          const pageErrors = [];
+          page.on('console', (message) => {
+            if (message.type() === 'error' || message.type() === 'warning') {
+              consoleMessages.push({ type: message.type(), text: message.text() });
+            }
+          });
+          page.on('pageerror', (error) => pageErrors.push(String(error)));
+
+          const snapshot = async (label) => {
+            const state = await page.evaluate(() => {
+              const canvas = document.querySelector('.canvas-wrap canvas');
+              let renderer = 'none';
+              try {
+                const gl = canvas?.getContext('webgl2') || canvas?.getContext('webgl');
+                if (gl) {
+                  const info = gl.getExtension('WEBGL_debug_renderer_info');
+                  renderer = info
+                    ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL)
+                    : gl.getParameter(gl.RENDERER);
+                } else if (canvas?.getContext('2d')) {
+                  renderer = 'Canvas2D fallback';
+                }
+              } catch (error) {
+                renderer = `renderer probe failed: ${String(error)}`;
+              }
+              const rect = canvas?.getBoundingClientRect();
+              return {
+                renderer,
+                bodyText: document.body.innerText,
+                canvas: canvas ? {
+                  width: canvas.width,
+                  height: canvas.height,
+                  cssWidth: rect?.width ?? 0,
+                  cssHeight: rect?.height ?? 0,
+                } : null,
+                buttons: Array.from(document.querySelectorAll('button')).map((button) => ({
+                  text: button.textContent?.trim() ?? '',
+                  className: button.className,
+                  disabled: button.disabled,
+                })),
+              };
+            });
+            fs.writeFileSync(`visual-review/${label}.json`, JSON.stringify(state, null, 2));
+            await page.screenshot({ path: `visual-review/${label}.png`, fullPage: true });
+          };
+
+          const chooseUpgradeIfNeeded = async () => {
+            const card = page.locator('.upgrade-card').first();
+            if (await card.isVisible().catch(() => false)) {
+              await card.click({ force: true });
+              await page.waitForTimeout(250);
+              return true;
+            }
+            return false;
+          };
+
+          await page.goto('http://127.0.0.1:4173/?visual-review=1', {
+            waitUntil: 'domcontentloaded',
+            timeout: 90000,
+          });
+          await page.waitForSelector('.punch-button', { timeout: 90000 });
+          await page.waitForTimeout(5000);
+          await snapshot('00-start');
+
+          for (let i = 0; i < 8; i += 1) {
+            await page.keyboard.press('KeyF');
+            await page.waitForTimeout(340);
+            await chooseUpgradeIfNeeded();
+          }
+          await snapshot('01-break-chain');
+
+          await page.keyboard.press('Space');
+          await page.waitForTimeout(160);
+          await page.keyboard.press('KeyF');
+          await page.waitForTimeout(900);
+          await snapshot('02-ground-pound');
+
+          await page.keyboard.down('KeyW');
+          for (let i = 0; i < 44; i += 1) {
+            await page.keyboard.press('KeyF');
+            if (i === 9 || i === 24 || i === 36) {
+              await page.keyboard.press('Space');
+              await page.waitForTimeout(140);
+              await page.keyboard.press('KeyF');
+            }
+            if (i % 11 === 5) {
+              await page.keyboard.down(i % 22 === 5 ? 'KeyA' : 'KeyD');
+              await page.waitForTimeout(260);
+              await page.keyboard.up(i % 22 === 5 ? 'KeyA' : 'KeyD');
+            }
+            await chooseUpgradeIfNeeded();
+            await page.waitForTimeout(320);
+          }
+          await page.keyboard.up('KeyW');
+          await page.waitForTimeout(500);
+          await snapshot('03-forward-break-run');
+
+          const canvasWrap = page.locator('.canvas-wrap');
+          const box = await canvasWrap.boundingBox();
+          if (box) {
+            await page.mouse.move(box.x + box.width * 0.76, box.y + box.height * 0.48);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width * 0.61, box.y + box.height * 0.34, { steps: 8 });
+            await page.mouse.up();
+            await page.waitForTimeout(700);
+          }
+          await snapshot('04-camera-turn');
+
+          await page.keyboard.down('KeyW');
+          for (let i = 0; i < 40; i += 1) {
+            await page.keyboard.press('KeyF');
+            if (i % 13 === 7) {
+              await page.keyboard.press('Space');
+              await page.waitForTimeout(140);
+              await page.keyboard.press('KeyF');
+            }
+            await chooseUpgradeIfNeeded();
+            await page.waitForTimeout(320);
+          }
+          await page.keyboard.up('KeyW');
+          await page.waitForTimeout(700);
+          await snapshot('05-deep-run');
+
+          const settings = page.locator('.settings-button');
+          if (await settings.isVisible().catch(() => false)) {
+            await settings.click({ force: true });
+            await page.waitForTimeout(350);
+            await snapshot('06-settings');
+          }
+
+          fs.writeFileSync('visual-review/runtime-log.json', JSON.stringify({
+            consoleMessages,
+            pageErrors,
+            finalUrl: page.url(),
+          }, null, 2));
+          await browser.close();
+          JS
+          node /tmp/visual-play-review.mjs
+      - name: Preserve server log
+        if: always()
+        run: cp /tmp/loop-rogue-vite.log visual-review/server.log || true
+      - name: Upload visual review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loop-rogue-visual-play-review
+          path: visual-review
+          if-no-files-found: warn
+          retention-days: 3
