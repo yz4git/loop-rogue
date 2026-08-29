@@ -13,6 +13,7 @@ import { CavePass } from "./passes/CavePass";
 import { MainRoutePass } from "./passes/MainRoutePass";
 import { FeaturePass } from "./passes/FeaturePass";
 import { StructurePass } from "./passes/StructurePass";
+import { BreakSetpiecePass } from "./passes/BreakSetpiecePass";
 import { GameplayPlacementPass } from "./passes/GameplayPlacementPass";
 import { ValidationPass } from "./passes/ValidationPass";
 import { BiomePass } from "./passes/BiomePass";
@@ -29,6 +30,7 @@ export class WorldGenerator {
     new MainRoutePass(),
     new FeaturePass(),
     new StructurePass(),
+    new BreakSetpiecePass(),
     new GameplayPlacementPass(),
     new ValidationPass(),
     new BiomePass(),
@@ -78,6 +80,7 @@ export class WorldGenerator {
         structures: context.metrics.structures,
         landmarks: context.metrics.landmarks,
         jigsawPieces: context.metrics.jigsawPieces,
+        breakSetpieces: context.metrics.breakSetpieces,
         enemySpawns: context.enemySpawns.concat(context.structureEnemies),
         coinSpawns: context.coinSpawns.concat(context.structureLoot),
         generationMs,
