@@ -44,17 +44,23 @@ jobs:
           page.on('pageerror',e=>errors.push(String(e))); page.on('console',m=>logs.push(`${m.type()}: ${m.text()}`));
           async function choose(){const c=page.locator('.upgrade-card').first();if(await c.isVisible().catch(()=>false)){await c.click({force:true,timeout:1000}).catch(()=>{});await page.waitForTimeout(100);}}
           async function shot(n){const text=await page.locator('body').innerText();fs.writeFileSync(`enemy-review/${n}.txt`,text);await page.screenshot({path:`enemy-review/${n}.png`,fullPage:true});}
-          await page.goto('http://127.0.0.1:4173/?enemy-combat-review=2',{waitUntil:'domcontentloaded',timeout:90000});
+          await page.goto('http://127.0.0.1:4173/?enemy-combat-review=3',{waitUntil:'domcontentloaded',timeout:90000});
           await page.waitForSelector('.punch-button',{timeout:90000}); await page.waitForTimeout(3500); await shot('00-start');
           await page.keyboard.down('KeyW');
-          for(let i=0;i<180;i++){
-            if(i%3!==0) await page.keyboard.press('KeyF');
-            if(i%28===10){await page.keyboard.up('KeyW'); await page.waitForTimeout(600); await page.keyboard.press('KeyF'); await page.keyboard.down('KeyW');}
-            if(i%32===16){const k=(i%64===16)?'KeyA':'KeyD';await page.keyboard.down(k);await page.waitForTimeout(420);await page.keyboard.up(k);}
-            if(i%45===20){await page.keyboard.press('Space');await page.waitForTimeout(150);await page.keyboard.press('KeyF');}
+          for(let i=0;i<135;i++){
+            if(i===58){await page.keyboard.up('KeyW');await shot('pause-start');}
+            if(i>=58 && i<82){
+              if(i%6===0) await page.keyboard.press('KeyF');
+              if(i%8===3){const k=i%16===3?'KeyA':'KeyD';await page.keyboard.down(k);await page.waitForTimeout(260);await page.keyboard.up(k);}
+            } else {
+              if(i===82) await page.keyboard.down('KeyW');
+              if(i%3!==0) await page.keyboard.press('KeyF');
+              if(i%30===15){const k=i%60===15?'KeyA':'KeyD';await page.keyboard.down(k);await page.waitForTimeout(360);await page.keyboard.up(k);}
+              if(i%44===20){await page.keyboard.press('Space');await page.waitForTimeout(150);await page.keyboard.press('KeyF');}
+            }
             await choose();
-            if([18,38,62,88,116,148,176].includes(i)) await shot(`p${String(i).padStart(3,'0')}`);
-            await page.waitForTimeout(300);
+            if([18,40,60,68,76,84,104,132].includes(i)) await shot(`p${String(i).padStart(3,'0')}`);
+            await page.waitForTimeout(330);
           }
           await page.keyboard.up('KeyW'); await page.waitForTimeout(700); await shot('99-end');
           fs.writeFileSync('enemy-review/errors.json',JSON.stringify(errors,null,2));
