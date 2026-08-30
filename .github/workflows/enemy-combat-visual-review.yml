@@ -1,0 +1,72 @@
+name: enemy combat visual review
+
+on:
+  push:
+    branches: [work/enemy-combat-visual-review-20260830]
+    paths: [.github/workflows/enemy-combat-visual-review.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  visual-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/enemy-combat-visual-review-20260830
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: |
+          npm ci
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Start game
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 4173 >/tmp/game.log 2>&1 &
+          for i in $(seq 1 90); do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
+          cat /tmp/game.log; exit 1
+      - name: Play and capture
+        run: |
+          cat > enemy-review.mjs <<'JS'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+          fs.mkdirSync('enemy-review',{recursive:true});
+          const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-webgl','--ignore-gpu-blocklist','--disable-dev-shm-usage']});
+          const context=await browser.newContext({viewport:{width:844,height:390},deviceScaleFactor:2,isMobile:true,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.6 Mobile/15E148 Safari/604.1'});
+          const page=await context.newPage();
+          const errors=[]; const logs=[];
+          page.on('pageerror',e=>errors.push(String(e))); page.on('console',m=>logs.push(`${m.type()}: ${m.text()}`));
+          async function choose(){const c=page.locator('.upgrade-card').first();if(await c.isVisible().catch(()=>false)){await c.click({force:true,timeout:1000}).catch(()=>{});await page.waitForTimeout(100);}}
+          async function shot(n){const text=await page.locator('body').innerText();fs.writeFileSync(`enemy-review/${n}.txt`,text);await page.screenshot({path:`enemy-review/${n}.png`,fullPage:true});}
+          await page.goto('http://127.0.0.1:4173/?enemy-combat-review=1',{waitUntil:'domcontentloaded',timeout:90000});
+          await page.waitForSelector('.punch-button',{timeout:90000}); await page.waitForTimeout(3500); await shot('00-start');
+          await page.keyboard.down('KeyW');
+          for(let i=0;i<180;i++){
+            // alternate between pressure, dodge windows, and counter-BREAK attempts
+            if(i%3!==0) await page.keyboard.press('KeyF');
+            if(i%28===10){await page.keyboard.up('KeyW'); await page.waitForTimeout(600); await page.keyboard.press('KeyF'); await page.keyboard.down('KeyW');}
+            if(i%32===16){const k=(i%64===16)?'KeyA':'KeyD';await page.keyboard.down(k);await page.waitForTimeout(420);await page.keyboard.up(k);}
+            if(i%45===20){await page.keyboard.press('Space');await page.waitForTimeout(150);await page.keyboard.press('KeyF');}
+            await choose();
+            if([18,38,62,88,116,148,176].includes(i)) await shot(`p${String(i).padStart(3,'0')}`);
+            await page.waitForTimeout(300);
+          }
+          await page.keyboard.up('KeyW'); await page.waitForTimeout(700); await shot('99-end');
+          fs.writeFileSync('enemy-review/errors.json',JSON.stringify(errors,null,2));
+          fs.writeFileSync('enemy-review/console.txt',logs.join('\n'));
+          await browser.close();
+          JS
+          node enemy-review.mjs
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enemy-combat-visual-review
+          path: enemy-review
+          retention-days: 3
