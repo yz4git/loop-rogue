@@ -1,0 +1,153 @@
+name: apply enemy combat review improvements
+
+on:
+  push:
+    branches: [work/enemy-combat-visual-review-20260830]
+    paths: [.github/workflows/apply-enemy-combat-review.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  improve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/enemy-combat-visual-review-20260830
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply combat review improvements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p=Path(path); text=p.read_text()
+              if new in text: return
+              if old not in text: raise SystemExit(f'{path}: missing target {old[:120]!r}')
+              p.write_text(text.replace(old,new,1))
+
+          replace('src/enemies/EnemyBehaviorModel.ts', '''  chaser: { telegraphSeconds: 0.38, attackSeconds: 0.26, recoverSeconds: 0.48, attackRange: 1.28, preferredRange: 1.05, attackSpeedMultiplier: 3.2, attackDamage: 1 },
+  zigzag: { telegraphSeconds: 0.52, attackSeconds: 0.34, recoverSeconds: 0.62, attackRange: 1.42, preferredRange: 1.35, attackSpeedMultiplier: 3.7, attackDamage: 1 },
+  burrower: { telegraphSeconds: 0.68, attackSeconds: 0.34, recoverSeconds: 0.82, attackRange: 1.32, preferredRange: 1.2, attackSpeedMultiplier: 2.9, attackDamage: 1 },
+  bomber: { telegraphSeconds: 0.78, attackSeconds: 0.18, recoverSeconds: 1.05, attackRange: 2.35, preferredRange: 2.0, attackSpeedMultiplier: 0.5, attackDamage: 2 },
+  brute: { telegraphSeconds: 0.88, attackSeconds: 0.30, recoverSeconds: 1.08, attackRange: 1.62, preferredRange: 1.45, attackSpeedMultiplier: 2.4, attackDamage: 2 },
+  boss: { telegraphSeconds: 0.70, attackSeconds: 0.42, recoverSeconds: 0.72, attackRange: 2.1, preferredRange: 1.8, attackSpeedMultiplier: 3.0, attackDamage: 2 },''', '''  chaser: { telegraphSeconds: 0.50, attackSeconds: 0.34, recoverSeconds: 0.55, attackRange: 2.8, preferredRange: 2.35, attackSpeedMultiplier: 3.5, attackDamage: 1 },
+  zigzag: { telegraphSeconds: 0.62, attackSeconds: 0.38, recoverSeconds: 0.68, attackRange: 3.2, preferredRange: 2.65, attackSpeedMultiplier: 4.0, attackDamage: 1 },
+  burrower: { telegraphSeconds: 0.78, attackSeconds: 0.38, recoverSeconds: 0.90, attackRange: 2.9, preferredRange: 2.45, attackSpeedMultiplier: 3.2, attackDamage: 1 },
+  bomber: { telegraphSeconds: 0.90, attackSeconds: 0.22, recoverSeconds: 1.15, attackRange: 4.6, preferredRange: 3.8, attackSpeedMultiplier: 0.55, attackDamage: 2 },
+  brute: { telegraphSeconds: 1.00, attackSeconds: 0.34, recoverSeconds: 1.15, attackRange: 3.2, preferredRange: 2.7, attackSpeedMultiplier: 2.8, attackDamage: 2 },
+  boss: { telegraphSeconds: 0.82, attackSeconds: 0.48, recoverSeconds: 0.80, attackRange: 3.6, preferredRange: 3.0, attackSpeedMultiplier: 3.3, attackDamage: 2 },''')
+
+          replace('src/enemies/EnemyManager.ts', '''        new THREE.MeshBasicMaterial({ color: 0xffd77a, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide }),''', '''        new THREE.MeshBasicMaterial({ color: 0xffd77a, transparent: true, opacity: 0.78, depthWrite: false, depthTest: false, side: THREE.DoubleSide }),''')
+          replace('src/enemies/EnemyManager.ts', '''      telegraph.rotation.x = -Math.PI / 2;
+      telegraph.position.y = -0.38;
+      telegraph.visible = false;''', '''      telegraph.rotation.x = -Math.PI / 2;
+      telegraph.position.y = -0.38;
+      telegraph.renderOrder = 20;
+      telegraph.visible = false;''')
+          replace('src/enemies/EnemyManager.ts', '''      if (distance <= profile.preferredRange && enemy.behavior.attackCooldown <= 0) {''', '''      if (distance <= profile.attackRange && enemy.behavior.attackCooldown <= 0) {''')
+          replace('src/enemies/EnemyManager.ts', '''    } else if ((enemy.type === "burrower" || enemy.type === "brute" || enemy.boss) && enemy.terrainCooldown <= 0) {
+      enemy.terrainCooldown = enemy.boss ? 1.1 : enemy.type === "brute" ? 1.8 : 1.25;
+      this.probe.copy(enemy.mesh.position).addScaledVector(direction, 0.8);
+      this.callbacks.onEnemyTerrainImpact?.(this.probe.clone(), enemy.boss ? 2.0 : enemy.type === "brute" ? 1.45 : 1.05, enemy.boss ? 2 : 1);
+    } else {''', '''    } else if (enemy.terrainCooldown <= 0) {
+      enemy.terrainCooldown = enemy.boss ? 1.1 : enemy.type === "brute" ? 1.8 : enemy.type === "burrower" ? 1.25 : enemy.type === "bomber" ? 2.1 : 1.65;
+      this.probe.copy(enemy.mesh.position).addScaledVector(direction, 0.8);
+      const radius = enemy.boss ? 2.0 : enemy.type === "brute" ? 1.45 : enemy.type === "burrower" ? 1.05 : enemy.type === "bomber" ? 0.9 : 0.72;
+      this.callbacks.onEnemyTerrainImpact?.(this.probe.clone(), radius, enemy.boss || enemy.type === "brute" ? 2 : 1);
+    } else {''')
+          replace('src/enemies/EnemyManager.ts', '''  private updateTelegraphVisual(enemy: EnemyState, profile: (typeof ENEMY_BEHAVIOR_PROFILES)[EnemyType]): void {
+    const telegraphing = enemy.behavior.phase === "telegraph";
+    enemy.telegraph.visible = telegraphing;
+    if (!telegraphing) return;
+    const p = phaseProgress(enemy.behavior, profile);
+    const pulse = 0.82 + p * 1.05 + Math.sin(p * Math.PI * 6) * 0.08;
+    enemy.telegraph.scale.setScalar(pulse * (enemy.boss ? 1.8 : enemy.type === "brute" ? 1.3 : enemy.type === "bomber" ? 1.55 : 1));
+    const material = enemy.telegraph.material as THREE.MeshBasicMaterial;
+    material.opacity = 0.42 + p * 0.5;
+    material.color.setHex(p > 0.72 ? 0xff5e68 : enemy.type === "bomber" ? 0xffd95e : 0xffb26b);
+  }''', '''  private updateTelegraphVisual(enemy: EnemyState, profile: (typeof ENEMY_BEHAVIOR_PROFILES)[EnemyType]): void {
+    const warning = enemy.behavior.phase === "telegraph" || enemy.behavior.phase === "attack";
+    enemy.telegraph.visible = warning;
+    if (!warning) return;
+    const p = phaseProgress(enemy.behavior, profile);
+    const dangerRadius = enemy.boss ? 2.2 : enemy.type === "bomber" ? 2.45 : enemy.type === "brute" ? 1.65 : enemy.type === "burrower" ? 1.55 : enemy.type === "zigzag" ? 1.45 : 1.25;
+    const radiusScale = dangerRadius / 0.61;
+    const pulse = radiusScale * (0.74 + p * 0.26 + Math.sin(p * Math.PI * 6) * 0.035);
+    enemy.telegraph.scale.setScalar(pulse);
+    const material = enemy.telegraph.material as THREE.MeshBasicMaterial;
+    const attacking = enemy.behavior.phase === "attack";
+    material.opacity = attacking ? 0.96 : 0.55 + p * 0.4;
+    material.color.setHex(attacking || p > 0.72 ? 0xff4d5f : enemy.type === "bomber" ? 0xffd95e : 0xffb26b);
+  }''')
+          replace('src/enemies/EnemyManager.ts', '''  private selectReinforcementSpawn(spawnPoints: readonly THREE.Vector3[], playerPosition: THREE.Vector3, index: number): THREE.Vector3 {
+    const farPoints = spawnPoints.filter((point) => point.distanceToSquared(playerPosition) >= 30.25);
+    const pool = farPoints.length > 0 ? farPoints : spawnPoints;
+    const point = (pool[index % Math.max(1, pool.length)] ?? this.fallbackSpawn(index)).clone();
+    for (let rise = 0; rise < 4 && this.world.collidesAabb(point, 0.32, 0.8); rise += 1) point.y += 1;
+    return point;
+  }''', '''  private selectReinforcementSpawn(spawnPoints: readonly THREE.Vector3[], playerPosition: THREE.Vector3, index: number): THREE.Vector3 {
+    const combatBand = spawnPoints
+      .filter((point) => {
+        const distanceSq = point.distanceToSquared(playerPosition);
+        return distanceSq >= 20.25 && distanceSq <= 110.25;
+      })
+      .sort((left, right) => left.distanceToSquared(playerPosition) - right.distanceToSquared(playerPosition));
+    if (combatBand.length > 0) {
+      const point = combatBand[index % combatBand.length].clone();
+      for (let rise = 0; rise < 4 && this.world.collidesAabb(point, 0.32, 0.8); rise += 1) point.y += 1;
+      if (!this.world.collidesAabb(point, 0.32, 0.8)) return point;
+    }
+
+    const angle = (index * 2.399963229728653 + this.depthTier * 0.73) % (Math.PI * 2);
+    const radius = 5.2 + (index % 3) * 1.05;
+    const local = playerPosition.clone();
+    local.x += Math.cos(angle) * radius;
+    local.z += Math.sin(angle) * radius;
+    for (let rise = 0; rise < 5 && this.world.collidesAabb(local, 0.32, 0.8); rise += 1) local.y += 1;
+    if (!this.world.collidesAabb(local, 0.32, 0.8)) return local;
+
+    const ordered = [...spawnPoints].sort((left, right) => left.distanceToSquared(playerPosition) - right.distanceToSquared(playerPosition));
+    const point = (ordered.find((candidate) => candidate.distanceToSquared(playerPosition) >= 16) ?? ordered[0] ?? this.fallbackSpawn(index)).clone();
+    for (let rise = 0; rise < 4 && this.world.collidesAabb(point, 0.32, 0.8); rise += 1) point.y += 1;
+    return point;
+  }''')
+          replace('src/enemies/EnemyManager.ts', '''  private restoreEnemyScale(enemy: EnemyState): void { enemy.mesh.scale.setScalar(this.baseScale(enemy.type)); }''', '''  private restoreEnemyScale(enemy: EnemyState): void {
+    const base = this.baseScale(enemy.type);
+    if (enemy.type === "zigzag") enemy.mesh.scale.set(base * 0.82, base * 1.28, base * 0.82);
+    else if (enemy.type === "burrower") enemy.mesh.scale.set(base * 1.22, base * 0.78, base * 1.22);
+    else if (enemy.type === "bomber") enemy.mesh.scale.set(base * 0.92, base * 1.18, base * 0.92);
+    else if (enemy.type === "brute") enemy.mesh.scale.set(base * 1.08, base * 0.95, base * 1.08);
+    else enemy.mesh.scale.setScalar(base);
+  }''')
+
+          test=Path('tests/runtime-contracts.test.ts')
+          text=test.read_text()
+          marker='enemy combat review keeps threats visible and reachable'
+          if marker not in text:
+              text += '''\n\ntest("enemy combat review keeps threats visible and reachable", () => {\n  const manager = readFileSync(new URL("../src/enemies/EnemyManager.ts", import.meta.url), "utf8");\n  const model = readFileSync(new URL("../src/enemies/EnemyBehaviorModel.ts", import.meta.url), "utf8");\n  assert.match(manager, /depthTest: false/);\n  assert.match(manager, /enemy\\.behavior\\.phase === "telegraph" \\|\\| enemy\\.behavior\\.phase === "attack"/);\n  assert.match(manager, /combatBand/);\n  assert.match(manager, /enemy\\.terrainCooldown <= 0/);\n  assert.match(model, /chaser: .*attackRange: 2\\.8/);\n  assert.match(model, /bomber: .*attackRange: 4\\.6/);\n});\n'''
+              test.write_text(text)
+          PY
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Tests
+        run: bash scripts/run-tests.sh
+      - name: Lint
+        run: npm run lint
+      - name: Commit
+        run: |
+          git config user.name "yz4git"
+          git config user.email "65384484+yz4git@users.noreply.github.com"
+          git add src tests
+          git diff --cached --check
+          git commit -m "fix: make enemy combat readable and reachable"
+          git push origin HEAD:work/enemy-combat-visual-review-20260830
