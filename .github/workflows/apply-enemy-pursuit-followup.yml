@@ -1,0 +1,43 @@
+name: apply enemy pursuit followup
+
+on:
+  push:
+    branches:
+      - work/enemy-combat-visual-review-20260830
+    paths:
+      - .github/workflows/apply-enemy-pursuit-followup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/enemy-combat-visual-review-20260830
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply pursuit patch
+        run: python .github/scripts/apply_enemy_review_followup.py
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Tests
+        run: bash scripts/run-tests.sh
+      - name: Lint
+        run: npm run lint
+      - name: Commit
+        run: |
+          git config user.name "yz4git"
+          git config user.email "65384484+yz4git@users.noreply.github.com"
+          git add src tests
+          git diff --cached --check
+          git commit -m "fix: keep enemy pursuit engaged through voxel terrain"
+          git push origin HEAD:work/enemy-combat-visual-review-20260830
