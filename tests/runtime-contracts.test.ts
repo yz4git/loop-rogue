@@ -188,3 +188,14 @@ test("runtime exposes close-camera avatar fallback and shared contact grace", ()
   assert.match(enemies, /playerContactCooldown/);
   assert.match(enemies, /1\.35/);
 });
+
+
+test("enemy combat review keeps threats visible and reachable", () => {
+  const manager = readFileSync(new URL("../src/enemies/EnemyManager.ts", import.meta.url), "utf8");
+  const model = readFileSync(new URL("../src/enemies/EnemyBehaviorModel.ts", import.meta.url), "utf8");
+  assert.match(manager, /depthTest: false/);
+  assert.match(manager, /enemy\.behavior\.phase === "telegraph" \|\| enemy\.behavior\.phase === "attack"/);
+  assert.match(manager, /combatBand/);
+  assert.match(model, /chaser: .*attackRange: 2\.8/);
+  assert.match(model, /bomber: .*attackRange: 4\.6/);
+});

@@ -76,10 +76,11 @@ export class EnemyManager {
       mesh.name = `enemy-${index}`;
       const telegraph = new THREE.Mesh(
         this.telegraphGeometry,
-        new THREE.MeshBasicMaterial({ color: 0xffd77a, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({ color: 0xffd77a, transparent: true, opacity: 0.78, depthWrite: false, depthTest: false, side: THREE.DoubleSide }),
       );
       telegraph.rotation.x = -Math.PI / 2;
       telegraph.position.y = -0.38;
+      telegraph.renderOrder = 20;
       telegraph.visible = false;
       mesh.add(telegraph);
       this.scene.add(mesh);
@@ -195,7 +196,7 @@ export class EnemyManager {
         continue;
       }
 
-      if (distance <= profile.preferredRange && enemy.behavior.attackCooldown <= 0) {
+      if (distance <= profile.attackRange && enemy.behavior.attackCooldown <= 0) {
         enemy.behavior.phase = "telegraph";
         enemy.behavior.phaseSeconds = 0;
         enemy.behavior.lockedYaw = Math.atan2(direction.x, direction.z);
@@ -223,10 +224,11 @@ export class EnemyManager {
 
     if (!this.world.collidesAabb(next, enemy.boss ? 0.68 : 0.32, enemy.boss ? 1.45 : 0.8)) {
       enemy.mesh.position.copy(next);
-    } else if ((enemy.type === "burrower" || enemy.type === "brute" || enemy.boss) && enemy.terrainCooldown <= 0) {
-      enemy.terrainCooldown = enemy.boss ? 1.1 : enemy.type === "brute" ? 1.8 : 1.25;
+    } else if (enemy.terrainCooldown <= 0) {
+      enemy.terrainCooldown = enemy.boss ? 1.1 : enemy.type === "brute" ? 1.8 : enemy.type === "burrower" ? 1.25 : enemy.type === "bomber" ? 2.1 : 1.65;
       this.probe.copy(enemy.mesh.position).addScaledVector(direction, 0.8);
-      this.callbacks.onEnemyTerrainImpact?.(this.probe.clone(), enemy.boss ? 2.0 : enemy.type === "brute" ? 1.45 : 1.05, enemy.boss ? 2 : 1);
+      const radius = enemy.boss ? 2.0 : enemy.type === "brute" ? 1.45 : enemy.type === "burrower" ? 1.05 : enemy.type === "bomber" ? 0.9 : 0.72;
+      this.callbacks.onEnemyTerrainImpact?.(this.probe.clone(), radius, enemy.boss || enemy.type === "brute" ? 2 : 1);
     } else {
       const fallback = this.probe.copy(enemy.mesh.position);
       fallback.x -= direction.z * amount;
@@ -294,15 +296,18 @@ export class EnemyManager {
   }
 
   private updateTelegraphVisual(enemy: EnemyState, profile: (typeof ENEMY_BEHAVIOR_PROFILES)[EnemyType]): void {
-    const telegraphing = enemy.behavior.phase === "telegraph";
-    enemy.telegraph.visible = telegraphing;
-    if (!telegraphing) return;
+    const warning = enemy.behavior.phase === "telegraph" || enemy.behavior.phase === "attack";
+    enemy.telegraph.visible = warning;
+    if (!warning) return;
     const p = phaseProgress(enemy.behavior, profile);
-    const pulse = 0.82 + p * 1.05 + Math.sin(p * Math.PI * 6) * 0.08;
-    enemy.telegraph.scale.setScalar(pulse * (enemy.boss ? 1.8 : enemy.type === "brute" ? 1.3 : enemy.type === "bomber" ? 1.55 : 1));
+    const dangerRadius = enemy.boss ? 2.2 : enemy.type === "bomber" ? 2.45 : enemy.type === "brute" ? 1.65 : enemy.type === "burrower" ? 1.55 : enemy.type === "zigzag" ? 1.45 : 1.25;
+    const radiusScale = dangerRadius / 0.61;
+    const pulse = radiusScale * (0.74 + p * 0.26 + Math.sin(p * Math.PI * 6) * 0.035);
+    enemy.telegraph.scale.setScalar(pulse);
     const material = enemy.telegraph.material as THREE.MeshBasicMaterial;
-    material.opacity = 0.42 + p * 0.5;
-    material.color.setHex(p > 0.72 ? 0xff5e68 : enemy.type === "bomber" ? 0xffd95e : 0xffb26b);
+    const attacking = enemy.behavior.phase === "attack";
+    material.opacity = attacking ? 0.96 : 0.55 + p * 0.4;
+    material.color.setHex(attacking || p > 0.72 ? 0xff4d5f : enemy.type === "bomber" ? 0xffd95e : 0xffb26b);
   }
 
   damage(target: { mesh: THREE.Mesh; hp: number }, playerPosition: THREE.Vector3, hitPoint: THREE.Vector3, amount = 1, knockbackMultiplier = 1): EnemyDamageResult | null {
@@ -382,9 +387,26 @@ export class EnemyManager {
   }
 
   private selectReinforcementSpawn(spawnPoints: readonly THREE.Vector3[], playerPosition: THREE.Vector3, index: number): THREE.Vector3 {
-    const farPoints = spawnPoints.filter((point) => point.distanceToSquared(playerPosition) >= 30.25);
-    const pool = farPoints.length > 0 ? farPoints : spawnPoints;
-    const point = (pool[index % Math.max(1, pool.length)] ?? this.fallbackSpawn(index)).clone();
+    const combatBand = spawnPoints
+      .filter((point) => {
+        const distanceSq = point.distanceToSquared(playerPosition);
+        return distanceSq >= 20.25 && distanceSq <= 110.25;
+      })
+      .sort((left, right) => left.distanceToSquared(playerPosition) - right.distanceToSquared(playerPosition));
+    if (combatBand.length > 0) {
+      const point = combatBand[index % combatBand.length].clone();
+      for (let rise = 0; rise < 4 && this.world.collidesAabb(point, 0.32, 0.8); rise += 1) point.y += 1;
+      if (!this.world.collidesAabb(point, 0.32, 0.8)) return point;
+    }
+    const angle = (index * 2.399963229728653 + this.depthTier * 0.73) % (Math.PI * 2);
+    const radius = 5.2 + (index % 3) * 1.05;
+    const local = playerPosition.clone();
+    local.x += Math.cos(angle) * radius;
+    local.z += Math.sin(angle) * radius;
+    for (let rise = 0; rise < 5 && this.world.collidesAabb(local, 0.32, 0.8); rise += 1) local.y += 1;
+    if (!this.world.collidesAabb(local, 0.32, 0.8)) return local;
+    const ordered = [...spawnPoints].sort((left, right) => left.distanceToSquared(playerPosition) - right.distanceToSquared(playerPosition));
+    const point = (ordered.find((candidate) => candidate.distanceToSquared(playerPosition) >= 16) ?? ordered[0] ?? this.fallbackSpawn(index)).clone();
     for (let rise = 0; rise < 4 && this.world.collidesAabb(point, 0.32, 0.8); rise += 1) point.y += 1;
     return point;
   }
@@ -427,7 +449,14 @@ export class EnemyManager {
     return 1;
   }
 
-  private restoreEnemyScale(enemy: EnemyState): void { enemy.mesh.scale.setScalar(this.baseScale(enemy.type)); }
+  private restoreEnemyScale(enemy: EnemyState): void {
+    const base = this.baseScale(enemy.type);
+    if (enemy.type === "zigzag") enemy.mesh.scale.set(base * 0.82, base * 1.28, base * 0.82);
+    else if (enemy.type === "burrower") enemy.mesh.scale.set(base * 1.22, base * 0.78, base * 1.22);
+    else if (enemy.type === "bomber") enemy.mesh.scale.set(base * 0.92, base * 1.18, base * 0.92);
+    else if (enemy.type === "brute") enemy.mesh.scale.set(base * 1.08, base * 0.95, base * 1.08);
+    else enemy.mesh.scale.setScalar(base);
+  }
 
   private hpForType(type: EnemyType): number {
     const tierBonus = Math.max(0, this.depthTier - 1);

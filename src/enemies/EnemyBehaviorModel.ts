@@ -18,12 +18,12 @@ export interface EnemyBehaviorProfile {
 }
 
 export const ENEMY_BEHAVIOR_PROFILES = {
-  chaser: { telegraphSeconds: 0.38, attackSeconds: 0.26, recoverSeconds: 0.48, attackRange: 1.28, preferredRange: 1.05, attackSpeedMultiplier: 3.2, attackDamage: 1 },
-  zigzag: { telegraphSeconds: 0.52, attackSeconds: 0.34, recoverSeconds: 0.62, attackRange: 1.42, preferredRange: 1.35, attackSpeedMultiplier: 3.7, attackDamage: 1 },
-  burrower: { telegraphSeconds: 0.68, attackSeconds: 0.34, recoverSeconds: 0.82, attackRange: 1.32, preferredRange: 1.2, attackSpeedMultiplier: 2.9, attackDamage: 1 },
-  bomber: { telegraphSeconds: 0.78, attackSeconds: 0.18, recoverSeconds: 1.05, attackRange: 2.35, preferredRange: 2.0, attackSpeedMultiplier: 0.5, attackDamage: 2 },
-  brute: { telegraphSeconds: 0.88, attackSeconds: 0.30, recoverSeconds: 1.08, attackRange: 1.62, preferredRange: 1.45, attackSpeedMultiplier: 2.4, attackDamage: 2 },
-  boss: { telegraphSeconds: 0.70, attackSeconds: 0.42, recoverSeconds: 0.72, attackRange: 2.1, preferredRange: 1.8, attackSpeedMultiplier: 3.0, attackDamage: 2 },
+  chaser: { telegraphSeconds: 0.50, attackSeconds: 0.34, recoverSeconds: 0.55, attackRange: 2.8, preferredRange: 2.35, attackSpeedMultiplier: 3.5, attackDamage: 1 },
+  zigzag: { telegraphSeconds: 0.62, attackSeconds: 0.38, recoverSeconds: 0.68, attackRange: 3.2, preferredRange: 2.65, attackSpeedMultiplier: 4.0, attackDamage: 1 },
+  burrower: { telegraphSeconds: 0.78, attackSeconds: 0.38, recoverSeconds: 0.90, attackRange: 2.9, preferredRange: 2.45, attackSpeedMultiplier: 3.2, attackDamage: 1 },
+  bomber: { telegraphSeconds: 0.90, attackSeconds: 0.22, recoverSeconds: 1.15, attackRange: 4.6, preferredRange: 3.8, attackSpeedMultiplier: 0.55, attackDamage: 2 },
+  brute: { telegraphSeconds: 1.00, attackSeconds: 0.34, recoverSeconds: 1.15, attackRange: 3.2, preferredRange: 2.7, attackSpeedMultiplier: 2.8, attackDamage: 2 },
+  boss: { telegraphSeconds: 0.82, attackSeconds: 0.48, recoverSeconds: 0.80, attackRange: 3.6, preferredRange: 3.0, attackSpeedMultiplier: 3.3, attackDamage: 2 },
 } as const satisfies Record<string, EnemyBehaviorProfile>;
 
 export function createEnemyBehaviorState(offset = 0): EnemyBehaviorState {
