@@ -1,0 +1,53 @@
+name: enemy attack diagnostic
+
+on:
+  push:
+    branches: [work/enemy-combat-visual-review-20260830]
+    paths: [.github/workflows/enemy-attack-diagnostic.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/enemy-combat-visual-review-20260830
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run deterministic attack probe
+        run: |
+          cat > enemy-attack-probe.ts <<'TS'
+          import * as THREE from 'three';
+          import { EnemyManager } from './src/enemies/EnemyManager';
+          import { VoxelWorld } from './src/world/VoxelWorld';
+          const world = new VoxelWorld();
+          world.processRebuildQueue(100);
+          const scene = new THREE.Scene();
+          const player = new THREE.Group();
+          player.position.set(world.spawnPoint.x, world.spawnPoint.y, world.spawnPoint.z);
+          let hits = 0;
+          const manager = new EnemyManager(scene, world, {
+            onPlayerContact: (_source, damage) => { hits += damage ?? 1; },
+            onEnemyDamaged: () => undefined,
+          });
+          manager.reset();
+          for (const enemy of manager.enemies) enemy.mesh.visible = false;
+          const enemy = manager.enemies[0];
+          enemy.mesh.visible = true;
+          enemy.mesh.position.copy(player.position).add(new THREE.Vector3(0, 0, 1.2));
+          enemy.hitCooldown = 0;
+          enemy.behavior.phase = 'approach';
+          enemy.behavior.phaseSeconds = 0;
+          enemy.behavior.attackCooldown = 0;
+          for (let i=0;i<180;i++) manager.update(1/60, player);
+          console.log(JSON.stringify({hits, phase:enemy.behavior.phase, distance:enemy.mesh.position.distanceTo(player.position), position:enemy.mesh.position.toArray(), player:player.position.toArray()}));
+          if (hits <= 0) process.exit(2);
+          manager.dispose(); world.dispose();
+          TS
+          node --import tsx enemy-attack-probe.ts
