@@ -199,3 +199,12 @@ test("enemy combat review keeps threats visible and reachable", () => {
   assert.match(model, /chaser: .*attackRange: 2\.8/);
   assert.match(model, /bomber: .*attackRange: 4\.6/);
 });
+
+
+test("enemy pursuit re-enters combat with a telegraphed relocation", () => {
+  const manager = readFileSync(new URL("../src/enemies/EnemyManager.ts", import.meta.url), "utf8");
+  assert.match(manager, /phaseSeconds >= 4\.2/);
+  assert.match(manager, /distance > 7\.5/);
+  assert.match(manager, /relocateThreatNearPlayer/);
+  assert.match(manager, /behavior\.phase = "telegraph"/);
+});
