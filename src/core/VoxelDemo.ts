@@ -234,7 +234,7 @@ export class VoxelDemo {
     const delta = Math.min(this.clock.getDelta(), 0.05);
     const now = performance.now();
     const frame = this.runtime.update(delta, now);
-    this.player.visible = this.runtime.cameraDistance >= 1.2;
+    this.player.visible = this.runtime.cameraDistance >= 2.35;
     this.updatePlayerAnimation(now);
     if (frame.shouldRender) this.renderer.render(this.scene, this.camera);
 

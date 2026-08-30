@@ -184,7 +184,7 @@ test("runtime exposes close-camera avatar fallback and shared contact grace", ()
   const demo = readFileSync(new URL("../src/core/VoxelDemo.ts", import.meta.url), "utf8");
   const enemies = readFileSync(new URL("../src/enemies/EnemyManager.ts", import.meta.url), "utf8");
   assert.match(runtime, /cameraDistance/);
-  assert.match(demo, /cameraDistance >= 1\.2/);
+  assert.match(demo, /cameraDistance >= 2\.35/);
   assert.match(enemies, /playerContactCooldown/);
   assert.match(enemies, /1\.35/);
 });
@@ -207,4 +207,11 @@ test("enemy pursuit re-enters combat with a telegraphed relocation", () => {
   assert.match(manager, /distance > 7\.5/);
   assert.match(manager, /relocateThreatNearPlayer/);
   assert.match(manager, /behavior\.phase = "telegraph"/);
+});
+
+
+test("enemy warning ring faces the combat camera", () => {
+  const manager = readFileSync(new URL("../src/enemies/EnemyManager.ts", import.meta.url), "utf8");
+  assert.match(manager, /telegraph\.rotation\.x = 0/);
+  assert.match(manager, /telegraph\.position\.y = 0/);
 });

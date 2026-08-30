@@ -78,8 +78,8 @@ export class EnemyManager {
         this.telegraphGeometry,
         new THREE.MeshBasicMaterial({ color: 0xffd77a, transparent: true, opacity: 0.78, depthWrite: false, depthTest: false, side: THREE.DoubleSide }),
       );
-      telegraph.rotation.x = -Math.PI / 2;
-      telegraph.position.y = -0.38;
+      telegraph.rotation.x = 0;
+      telegraph.position.y = 0;
       telegraph.renderOrder = 20;
       telegraph.visible = false;
       mesh.add(telegraph);
