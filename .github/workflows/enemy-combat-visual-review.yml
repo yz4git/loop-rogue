@@ -44,11 +44,10 @@ jobs:
           page.on('pageerror',e=>errors.push(String(e))); page.on('console',m=>logs.push(`${m.type()}: ${m.text()}`));
           async function choose(){const c=page.locator('.upgrade-card').first();if(await c.isVisible().catch(()=>false)){await c.click({force:true,timeout:1000}).catch(()=>{});await page.waitForTimeout(100);}}
           async function shot(n){const text=await page.locator('body').innerText();fs.writeFileSync(`enemy-review/${n}.txt`,text);await page.screenshot({path:`enemy-review/${n}.png`,fullPage:true});}
-          await page.goto('http://127.0.0.1:4173/?enemy-combat-review=1',{waitUntil:'domcontentloaded',timeout:90000});
+          await page.goto('http://127.0.0.1:4173/?enemy-combat-review=2',{waitUntil:'domcontentloaded',timeout:90000});
           await page.waitForSelector('.punch-button',{timeout:90000}); await page.waitForTimeout(3500); await shot('00-start');
           await page.keyboard.down('KeyW');
           for(let i=0;i<180;i++){
-            // alternate between pressure, dodge windows, and counter-BREAK attempts
             if(i%3!==0) await page.keyboard.press('KeyF');
             if(i%28===10){await page.keyboard.up('KeyW'); await page.waitForTimeout(600); await page.keyboard.press('KeyF'); await page.keyboard.down('KeyW');}
             if(i%32===16){const k=(i%64===16)?'KeyA':'KeyD';await page.keyboard.down(k);await page.waitForTimeout(420);await page.keyboard.up(k);}
